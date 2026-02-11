@@ -1,0 +1,41 @@
+* {
+  all: unset;
+  font-family: monospace;
+  font-size: 18px;
+  color: @text;
+}
+
+.overlay-wrapper {
+  background: @base;
+  padding: 20px;
+}
+
+.item-box {
+  padding: 10px 14px;
+}
+
+.item-box:hover {
+  background: alpha(@selected-text, 0.15);
+}
+
+.item-box.active {
+  background: alpha(@selected-text, 0.25);
+}
+
+.item-box.active * {
+  color: @selected-text;
+}
+
+.item-image {
+  margin-right: 14px;
+  -gtk-icon-size: 32px;
+  -gtk-icon-transform: scale(0.9);
+}
+
+.item-text {
+}
+
+.item-number {
+  opacity: 0.5;
+  padding: 2px 8px;
+}

@@ -1,0 +1,384 @@
+#!/usr/bin/python3
+"""Hyprland window group tab overlay.
+
+Runs as a persistent daemon. Shows a visual overlay of the current window
+group tabs. All keyboard interaction is handled by the default Hyprland
+binds — this overlay is purely visual, shown/hidden via signals and
+refreshed via Hyprland IPC events.
+
+Modifier release detection uses evdev directly (bypasses compositor key
+tracking issues with changegroupactive).
+
+Signals:
+  SIGUSR2 — show overlay
+  SIGTERM — exit daemon
+"""
+
+from ctypes import CDLL
+
+CDLL("libgtk4-layer-shell.so")
+
+import fcntl
+import json
+import os
+import signal
+import socket
+import struct
+import subprocess
+
+import gi
+
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gio", "2.0")
+gi.require_version("GioUnix", "2.0")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+
+from gi.repository import Gdk, GLib, Gio, GioUnix, Gtk
+from gi.repository import Gtk4LayerShell as LayerShell
+
+EV_KEY = 0x01
+EVENT_SIZE = 24
+MODIFIER_KEYS = {56, 100, 125, 126}  # L_ALT, R_ALT, L_META, R_META
+EVIOCGKEY = 0x80604518
+EVIOCGBIT = lambda ev_type, size: 0x80004520 | (size << 16) | ev_type
+
+
+def hyprctl_json(command):
+    try:
+        result = subprocess.run(
+            ["hyprctl", command, "-j"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return None
+
+
+def build_icon_map():
+    icon_map = {}
+    for app_info in Gio.AppInfo.get_all():
+        if not isinstance(app_info, GioUnix.DesktopAppInfo):
+            continue
+        wm_class = app_info.get_startup_wm_class()
+        icon = app_info.get_icon()
+        if not icon:
+            continue
+        icon_name = icon.to_string()
+        if wm_class:
+            icon_map[wm_class.lower()] = icon_name
+        desktop_id = app_info.get_id() or ""
+        if desktop_id.endswith(".desktop"):
+            icon_map[desktop_id[:-8].lower()] = icon_name
+    return icon_map
+
+
+def get_grouped_windows():
+    active = hyprctl_json("activewindow")
+    if not active:
+        return None, []
+
+    grouped_addrs = active.get("grouped", [])
+    if len(grouped_addrs) < 2:
+        return None, []
+
+    clients = hyprctl_json("clients")
+    if not clients:
+        return None, []
+
+    active_addr = active["address"]
+
+    ordered = []
+    for addr in grouped_addrs:
+        for client in clients:
+            if client["address"] == addr:
+                ordered.append(client)
+                break
+
+    return active_addr, ordered
+
+
+def load_css():
+    home = os.path.expanduser("~")
+    walker_theme = os.path.join(home, ".config/omarchy/current/theme/walker.css")
+
+    css_paths = [
+        "/usr/share/hypr-workflow/style.css",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.css"),
+    ]
+
+    css_file = None
+    for path in css_paths:
+        if os.path.exists(path):
+            css_file = path
+            break
+
+    if not css_file:
+        return
+
+    theme_css = ""
+    if os.path.exists(walker_theme):
+        with open(walker_theme) as f:
+            theme_css = f.read()
+
+    with open(css_file) as f:
+        css_text = f.read()
+
+    combined = theme_css + "\n" + css_text
+
+    provider = Gtk.CssProvider()
+    provider.load_from_string(combined)
+
+    display = Gdk.Display.get_default()
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+
+
+def connect_event_socket():
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    sock_path = os.path.join(runtime_dir, "hypr", signature, ".socket2.sock")
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(sock_path)
+    sock.setblocking(False)
+    return sock
+
+
+def find_keyboard_devices():
+    """Find input devices that have both META and ALT keys."""
+    devices = []
+    for entry in sorted(os.listdir("/dev/input")):
+        if not entry.startswith("event"):
+            continue
+        path = f"/dev/input/{entry}"
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            key_bits = bytearray(96)
+            fcntl.ioctl(fd, EVIOCGBIT(EV_KEY, 96), key_bits)
+            has_meta = bool(key_bits[125 // 8] & (1 << (125 % 8)))
+            has_alt = bool(key_bits[56 // 8] & (1 << (56 % 8)))
+            if has_meta and has_alt:
+                devices.append(fd)
+            else:
+                os.close(fd)
+        except (OSError, PermissionError):
+            pass
+    return devices
+
+
+def check_modifiers_held(fds):
+    """Check if any Super or Alt key is currently held on any device."""
+    for fd in fds:
+        try:
+            buf = bytearray(96)
+            fcntl.ioctl(fd, EVIOCGKEY, buf)
+            for key in MODIFIER_KEYS:
+                if buf[key // 8] & (1 << (key % 8)):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+class GroupOverlay(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=None)
+        self.window = None
+        self.icon_map = None
+        self.items_box = None
+        self._event_sock = None
+        self._event_buf = b""
+        self._active = False
+        self._kb_fds = []
+
+    def do_activate(self):
+        self.hold()
+        load_css()
+        self.icon_map = build_icon_map()
+
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGUSR2, self._show)
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, self._quit)
+
+        try:
+            self._event_sock = connect_event_socket()
+            GLib.io_add_watch(
+                self._event_sock.fileno(),
+                GLib.IOCondition.IN,
+                self._on_ipc_event,
+            )
+        except Exception:
+            pass
+
+        self._kb_fds = find_keyboard_devices()
+        for fd in self._kb_fds:
+            GLib.io_add_watch(fd, GLib.IOCondition.IN, self._on_key_event)
+
+        self._show()
+
+    def _show(self):
+        self._active = True
+        active_addr, windows = get_grouped_windows()
+        if not windows:
+            self._active = False
+            if self.window:
+                self.window.set_visible(False)
+            return True
+
+        if not self.window:
+            self._create_window()
+
+        while child := self.items_box.get_first_child():
+            self.items_box.remove(child)
+
+        self._populate_items(active_addr, windows)
+
+        if not self.window.get_visible():
+            self.window.present()
+        return True
+
+    def _hide(self):
+        self._active = False
+        if self.window:
+            self.window.set_visible(False)
+        return True
+
+    def _refresh(self):
+        active_addr, windows = get_grouped_windows()
+        if not windows:
+            return True
+        if not self.window:
+            return True
+        while child := self.items_box.get_first_child():
+            self.items_box.remove(child)
+        self._populate_items(active_addr, windows)
+        return True
+
+    def _quit(self):
+        if self.window:
+            self.window.destroy()
+            self.window = None
+        for fd in self._kb_fds:
+            os.close(fd)
+        if self._event_sock:
+            self._event_sock.close()
+        self.release()
+        self.quit()
+        return False
+
+    def _on_key_event(self, fd, condition):
+        try:
+            data = os.read(fd, EVENT_SIZE * 64)
+            if not self._active:
+                return True
+            for i in range(0, len(data), EVENT_SIZE):
+                _, _, typ, code, value = struct.unpack("llHHI", data[i : i + EVENT_SIZE])
+                if typ == EV_KEY and code in MODIFIER_KEYS and value == 0:
+                    if not check_modifiers_held(self._kb_fds):
+                        self._hide()
+                        return True
+        except OSError:
+            pass
+        return True
+
+    def _on_ipc_event(self, fd, condition):
+        try:
+            data = self._event_sock.recv(4096)
+            if not data:
+                return False
+            self._event_buf += data
+            while b"\n" in self._event_buf:
+                line, self._event_buf = self._event_buf.split(b"\n", 1)
+                event = line.decode("utf-8", errors="replace")
+                if event.startswith("activewindow>>") and self._active:
+                    self._refresh()
+        except BlockingIOError:
+            pass
+        except Exception:
+            return False
+        return True
+
+    def _create_window(self):
+        self.window = Gtk.ApplicationWindow(application=self)
+
+        LayerShell.init_for_window(self.window)
+        LayerShell.set_layer(self.window, LayerShell.Layer.OVERLAY)
+        LayerShell.set_exclusive_zone(self.window, -1)
+        LayerShell.set_namespace(self.window, "hypr-group-overlay")
+
+        wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        wrapper.add_css_class("overlay-wrapper")
+        self.window.set_child(wrapper)
+
+        self.items_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        wrapper.append(self.items_box)
+
+    def _populate_items(self, active_addr, windows):
+        display = Gdk.Display.get_default()
+        icon_theme = Gtk.IconTheme.get_for_display(display)
+
+        for i, win in enumerate(windows):
+            item_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            item_box.add_css_class("item-box")
+
+            if win["address"] == active_addr:
+                item_box.add_css_class("active")
+
+            image = Gtk.Image()
+            image.add_css_class("item-image")
+            icon_name = self._resolve_icon(win["class"])
+            if icon_name and icon_theme.has_icon(icon_name):
+                image.set_from_icon_name(icon_name)
+            else:
+                image.set_from_icon_name("application-x-executable")
+            item_box.append(image)
+
+            title = Gtk.Label(label=win.get("title", ""))
+            title.add_css_class("item-text")
+            title.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+            title.set_hexpand(True)
+            title.set_xalign(0)
+            item_box.append(title)
+
+            number = Gtk.Label(label=str(i + 1))
+            number.add_css_class("item-number")
+            item_box.append(number)
+
+            self.items_box.append(item_box)
+
+    def _resolve_icon(self, app_class):
+        if not app_class or not self.icon_map:
+            return None
+        lower = app_class.lower()
+        if lower in self.icon_map:
+            return self.icon_map[lower]
+        for key, val in self.icon_map.items():
+            if key in lower or lower in key:
+                return val
+        return None
+
+
+PID_FILE = "/tmp/hypr-group-overlay.pid"
+
+
+def main():
+    try:
+        with open(PID_FILE) as f:
+            old_pid = int(f.read().strip())
+        if old_pid != os.getpid():
+            os.kill(old_pid, signal.SIGKILL)
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        pass
+
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    app = GroupOverlay()
+    app.run(None)
+
+
+if __name__ == "__main__":
+    main()
