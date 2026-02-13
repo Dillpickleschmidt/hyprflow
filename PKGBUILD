@@ -30,9 +30,9 @@ package() {
     install -Dm644 "$startdir/devns/extension/chromium/manifest.json" "$pkgdir/usr/share/hypr-workflow/extension/chromium/manifest.json"
     install -Dm644 "$startdir/devns/extension/chromium/background.js" "$pkgdir/usr/share/hypr-workflow/extension/chromium/background.js"
     install -Dm644 "$startdir/devns/extension/chromium/cookie-isolate-bridge.js" "$pkgdir/usr/share/hypr-workflow/extension/chromium/cookie-isolate-bridge.js"
-    install -Dm644 "$startdir/devns/extension/chromium/cookie-isolate.js" "$pkgdir/usr/share/hypr-workflow/extension/chromium/cookie-isolate.js"
+    install -Dm644 "$startdir/devns/extension/shared/cookie-isolate.js" "$pkgdir/usr/share/hypr-workflow/extension/chromium/cookie-isolate.js"
     install -Dm644 "$startdir/devns/extension/firefox/manifest.json" "$pkgdir/usr/share/hypr-workflow/extension/firefox/manifest.json"
     install -Dm644 "$startdir/devns/extension/firefox/background.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/background.js"
     install -Dm644 "$startdir/devns/extension/firefox/cookie-isolate-bridge.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/cookie-isolate-bridge.js"
-    install -Dm644 "$startdir/devns/extension/chromium/cookie-isolate.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/cookie-isolate.js"
+    install -Dm644 "$startdir/devns/extension/shared/cookie-isolate.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/cookie-isolate.js"
 }

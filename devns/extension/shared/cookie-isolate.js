@@ -12,7 +12,8 @@
       const raw = desc.get.call(this)
       const ws = document.documentElement.dataset.devnsWs
       if (!ws) return raw
-      const prefix = `_ws${ws}_`
+      const group = Math.floor((parseInt(ws) - 1) / 10) + 1
+      const prefix = `_wg${group}_`
       return raw
         .split("; ")
         .filter((p) => p.split("=")[0].startsWith(prefix))
@@ -24,7 +25,8 @@
       if (!ws) return desc.set.call(this, value)
       const eq = value.indexOf("=")
       if (eq === -1) return desc.set.call(this, value)
-      desc.set.call(this, `_ws${ws}_` + value)
+      const group = Math.floor((parseInt(ws) - 1) / 10) + 1
+      desc.set.call(this, `_wg${group}_` + value)
     },
     configurable: false,
     enumerable: true,

@@ -17,7 +17,8 @@ if [ -z "$DEVNS_WS" ] || [[ "${1:-}" != "compose" ]]; then
     exec "$REAL_DOCKER" "$@"
 fi
 
-export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd)")-ws${DEVNS_WS}}"
+DEVNS_GROUP=$(( (DEVNS_WS - 1) / 10 + 1 ))
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd)")-wg${DEVNS_GROUP}}"
 
 shift # "compose"
 args=("$@")

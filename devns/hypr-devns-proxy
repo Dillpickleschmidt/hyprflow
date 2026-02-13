@@ -191,8 +191,9 @@ def is_upgrade_response(headers: list[bytes]) -> bool:
 
 
 def rewrite_request_cookies(headers: list[bytes], ws_id: str) -> list[bytes]:
-    """Strip workspace prefix from Cookie headers before forwarding to backend."""
-    prefix = f"_ws{ws_id}_".encode()
+    """Strip workspace group prefix from Cookie headers before forwarding to backend."""
+    group_id = (int(ws_id) - 1) // 10 + 1
+    prefix = f"_wg{group_id}_".encode()
     result: list[bytes] = []
     for h in headers:
         if not h.lower().startswith(b"cookie:"):
@@ -210,8 +211,9 @@ def rewrite_request_cookies(headers: list[bytes], ws_id: str) -> list[bytes]:
 
 
 def rewrite_response_cookies(headers: list[bytes], ws_id: str) -> list[bytes]:
-    """Add workspace prefix to Set-Cookie cookie names before sending to browser."""
-    prefix = f"_ws{ws_id}_".encode()
+    """Add workspace group prefix to Set-Cookie cookie names before sending to browser."""
+    group_id = (int(ws_id) - 1) // 10 + 1
+    prefix = f"_wg{group_id}_".encode()
     result: list[bytes] = []
     for h in headers:
         if not h.lower().startswith(b"set-cookie:"):
