@@ -36,3 +36,19 @@
   opacity: 0.5;
   padding: 2px 8px;
 }
+
+.group-section + .group-section {
+  border-top: 1px solid alpha(@text, 0.1);
+  padding-top: 8px;
+}
+
+.group-header {
+  padding: 6px 14px;
+  opacity: 0.5;
+  font-size: 14px;
+}
+
+.group-header.active-group {
+  opacity: 1.0;
+  color: @selected-text;
+}
