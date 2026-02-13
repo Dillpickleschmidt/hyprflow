@@ -11,6 +11,14 @@ info() { echo "  $1"; }
 echo "hypr-devns: configuring per-workspace network namespaces"
 echo
 
+# 0. User config
+if [ ! -f "$HOME/.config/hypr-devns.conf" ]; then
+    cp /etc/hypr-devns.conf "$HOME/.config/hypr-devns.conf"
+    info "config: created ~/.config/hypr-devns.conf"
+else
+    info "config: ~/.config/hypr-devns.conf already exists"
+fi
+
 # 1. Autostart
 if grep -q 'hypr-devns-daemon' "$DEVNS_AUTOSTART" 2>/dev/null; then
     info "autostart: already configured"
@@ -128,7 +136,24 @@ else
     info "docker: registered devns runtime"
 fi
 
-# 8. Group overlay — autostart + keybindings
+# 8. Disable built-in groupbar (replaced by group-overlay)
+DEVNS_LOOKNFEEL="$HOME/.config/hypr/looknfeel.conf"
+if grep -q 'groupbar' "$DEVNS_LOOKNFEEL" 2>/dev/null; then
+    info "groupbar: already configured"
+else
+    cat >> "$DEVNS_LOOKNFEEL" << 'GROUPBAR'
+
+# Disable built-in groupbar (replaced by hypr-group-overlay)
+group {
+    groupbar {
+        enabled = false
+    }
+}
+GROUPBAR
+    info "groupbar: disabled built-in groupbar"
+fi
+
+# 9. Group overlay — autostart + keybindings
 if grep -q 'hypr-group-overlay' "$DEVNS_AUTOSTART" 2>/dev/null; then
     info "group-overlay: autostart already configured"
 else

@@ -66,6 +66,9 @@ DEVNS_DNS="9.9.9.9 1.1.1.1"
 
 # WAN interface for NAT (auto-detected from default route if empty)
 DEVNS_WAN_IFACE=""
+
+# Enable group tab overlay (true/false)
+GROUP_OVERLAY=true
 ```
 
 If WAN auto-detection fails (e.g. multiple default routes, VPN), set `DEVNS_WAN_IFACE` explicitly. Check your current default route with `ip route show default`.

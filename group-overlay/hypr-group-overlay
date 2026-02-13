@@ -369,8 +369,29 @@ PID_FILE = os.path.join(
     "hypr-group-overlay.pid",
 )
 
+CONFIG_FILES = [
+    "/etc/hypr-devns.conf",
+    os.path.expanduser("~/.config/hypr-devns.conf"),
+]
+
+
+def is_enabled():
+    value = "true"
+    for path in CONFIG_FILES:
+        try:
+            with open(path) as f:
+                for line in f:
+                    if line.strip().startswith("GROUP_OVERLAY="):
+                        value = line.strip().split("=", 1)[1].strip('"').strip("'")
+        except FileNotFoundError:
+            pass
+    return value != "false"
+
 
 def main():
+    if not is_enabled():
+        return
+
     try:
         with open(PID_FILE) as f:
             old_pid = int(f.read().strip())
