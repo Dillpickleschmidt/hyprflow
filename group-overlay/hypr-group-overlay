@@ -228,8 +228,6 @@ class GroupOverlay(Gtk.Application):
         for fd in self._kb_fds:
             GLib.io_add_watch(fd, GLib.IOCondition.IN, self._on_key_event)
 
-        self._show()
-
     def _show(self):
         self._active = True
         self._last_key = None
