@@ -282,5 +282,13 @@ else
     info "waybar: config not found, skipping"
 fi
 
+# 10. Notification workspace proxy — prefix notifications with workspace number
+if grep -q 'hypr-notif-ws' "$DEVNS_AUTOSTART" 2>/dev/null; then
+    info "notif-ws: already configured"
+else
+    echo 'exec-once = uwsm-app -- hypr-notif-ws' >> "$DEVNS_AUTOSTART"
+    info "notif-ws: added hypr-notif-ws to autostart"
+fi
+
 echo
 echo "Done. Restart Hyprland or reboot to activate."

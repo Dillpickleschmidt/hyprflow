@@ -1,0 +1,206 @@
+#!/usr/bin/python3
+"""hypr-notif-ws — D-Bus notification proxy that adds workspace numbers.
+
+Sits between applications and mako. Prepends the sender's Hyprland workspace
+ID to the summary field (e.g., "[3] New message") so users can see which
+workspace a notification came from.
+
+Runs mako on a private D-Bus bus (mako requires exclusive ownership of
+org.freedesktop.Notifications and exits if it can't acquire it).
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+import dbus
+import dbus.bus
+import dbus.mainloop.glib
+import dbus.service
+from gi.repository import GLib
+
+NOTIF_IFACE = "org.freedesktop.Notifications"
+NOTIF_PATH = "/org/freedesktop/Notifications"
+MAKO_IFACE = "fr.emersion.Mako"
+MAKO_PATH = "/fr/emersion/Mako"
+BUS_NAME = "org.freedesktop.Notifications"
+
+
+def get_workspace_for_pid(pid):
+    try:
+        result = subprocess.run(
+            ["hyprctl", "clients", "-j"],
+            capture_output=True, text=True, timeout=1,
+        )
+        for client in json.loads(result.stdout):
+            if client.get("pid") == pid:
+                return client.get("workspace", {}).get("id")
+    except Exception:
+        pass
+    return None
+
+
+class NotifProxy(dbus.service.Object):
+    def __init__(self, bus_name, session_bus, private_bus):
+        super().__init__(bus_name, NOTIF_PATH)
+        self._session_bus = session_bus
+        obj = private_bus.get_object(BUS_NAME, NOTIF_PATH)
+        self._mako = dbus.Interface(obj, NOTIF_IFACE)
+
+    @dbus.service.method(NOTIF_IFACE,
+                         in_signature="susssasa{sv}i", out_signature="u",
+                         sender_keyword="sender")
+    def Notify(self, app_name, replaces_id, app_icon, summary, body,
+               actions, hints, expire_timeout, sender=None):
+        if sender:
+            try:
+                pid = int(self._session_bus.call_blocking(
+                    "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                    "org.freedesktop.DBus", "GetConnectionUnixProcessID",
+                    "s", (sender,),
+                ))
+                ws = get_workspace_for_pid(pid)
+                if ws is not None:
+                    summary = f"[{ws}] {summary}"
+            except Exception:
+                pass
+        return self._mako.Notify(
+            app_name, replaces_id, app_icon, summary, body,
+            actions, hints, expire_timeout,
+        )
+
+    @dbus.service.method(NOTIF_IFACE, in_signature="u")
+    def CloseNotification(self, id):
+        self._mako.CloseNotification(id)
+
+    @dbus.service.method(NOTIF_IFACE, out_signature="as")
+    def GetCapabilities(self):
+        return self._mako.GetCapabilities()
+
+    @dbus.service.method(NOTIF_IFACE, out_signature="ssss")
+    def GetServerInformation(self):
+        return self._mako.GetServerInformation()
+
+    @dbus.service.signal(NOTIF_IFACE, signature="uu")
+    def NotificationClosed(self, id, reason):
+        pass
+
+    @dbus.service.signal(NOTIF_IFACE, signature="us")
+    def ActionInvoked(self, id, action_key):
+        pass
+
+
+class MakoCtlProxy(dbus.service.Object):
+    def __init__(self, bus_name, private_bus):
+        super().__init__(bus_name, MAKO_PATH)
+        obj = private_bus.get_object(BUS_NAME, MAKO_PATH)
+        self._mako = dbus.Interface(obj, MAKO_IFACE)
+
+    @dbus.service.method(MAKO_IFACE, in_signature="a{sv}")
+    def DismissNotifications(self, options):
+        self._mako.DismissNotifications(options)
+
+    @dbus.service.method(MAKO_IFACE, in_signature="us")
+    def InvokeAction(self, id, action_key):
+        self._mako.InvokeAction(id, action_key)
+
+    @dbus.service.method(MAKO_IFACE)
+    def RestoreNotification(self):
+        self._mako.RestoreNotification()
+
+    @dbus.service.method(MAKO_IFACE, out_signature="aa{sv}")
+    def ListNotifications(self):
+        return self._mako.ListNotifications()
+
+    @dbus.service.method(MAKO_IFACE, out_signature="aa{sv}")
+    def ListHistory(self):
+        return self._mako.ListHistory()
+
+    @dbus.service.method(MAKO_IFACE)
+    def Reload(self):
+        self._mako.Reload()
+
+    @dbus.service.method(MAKO_IFACE, in_signature="s")
+    def SetMode(self, mode):
+        self._mako.SetMode(mode)
+
+    @dbus.service.method(MAKO_IFACE, out_signature="as")
+    def ListModes(self):
+        return self._mako.ListModes()
+
+    @dbus.service.method(MAKO_IFACE, in_signature="as")
+    def SetModes(self, modes):
+        self._mako.SetModes(modes)
+
+
+def start_private_bus():
+    result = subprocess.run(
+        ["dbus-daemon", "--session", "--fork",
+         "--print-address=1", "--print-pid=2"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print("error: failed to start private dbus-daemon", file=sys.stderr)
+        sys.exit(1)
+    address = result.stdout.strip()
+    pid = int(result.stderr.strip())
+    return address, pid
+
+
+def start_mako(bus_address):
+    env = os.environ.copy()
+    env["DBUS_SESSION_BUS_ADDRESS"] = bus_address
+    return subprocess.Popen(["mako"], env=env)
+
+
+def main():
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    # Kill any existing mako (started by Omarchy's autostart)
+    subprocess.run(["pkill", "-x", "mako"], capture_output=True)
+    time.sleep(0.2)
+
+    session_bus = dbus.SessionBus()
+
+    private_addr, private_pid = start_private_bus()
+    mako_proc = start_mako(private_addr)
+    time.sleep(0.3)
+
+    private_bus = dbus.bus.BusConnection(private_addr)
+    bus_name = dbus.service.BusName(BUS_NAME, session_bus)
+
+    notif_proxy = NotifProxy(bus_name, session_bus, private_bus)
+    makoctl_proxy = MakoCtlProxy(bus_name, private_bus)
+
+    # Forward signals from mako to session bus
+    private_bus.add_signal_receiver(
+        notif_proxy.NotificationClosed,
+        signal_name="NotificationClosed",
+        dbus_interface=NOTIF_IFACE,
+        path=NOTIF_PATH,
+    )
+    private_bus.add_signal_receiver(
+        notif_proxy.ActionInvoked,
+        signal_name="ActionInvoked",
+        dbus_interface=NOTIF_IFACE,
+        path=NOTIF_PATH,
+    )
+
+    loop = GLib.MainLoop()
+
+    def cleanup(*_):
+        mako_proc.terminate()
+        os.kill(private_pid, signal.SIGTERM)
+        loop.quit()
+
+    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, cleanup)
+    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGINT, cleanup)
+
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

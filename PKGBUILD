@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc="Hyprland workflow tools: group overlay + per-workspace network namespaces"
 arch=('any')
 license=('MIT')
-depends=('python-gobject' 'gtk4-layer-shell' 'python' 'hyprland' 'jq' 'socat' 'iproute2' 'iptables')
+depends=('python-gobject' 'gtk4-layer-shell' 'python' 'python-dbus' 'hyprland' 'jq' 'socat' 'iproute2' 'iptables')
 backup=('etc/hypr-devns.conf')
 
 package() {
@@ -35,4 +35,6 @@ package() {
     install -Dm644 "$startdir/devns/extension/firefox/background.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/background.js"
     install -Dm644 "$startdir/devns/extension/firefox/cookie-isolate-bridge.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/cookie-isolate-bridge.js"
     install -Dm644 "$startdir/devns/extension/shared/cookie-isolate.js" "$pkgdir/usr/share/hypr-workflow/extension/firefox/cookie-isolate.js"
+
+    install -Dm755 "$startdir/notif/hypr-notif-ws" "$pkgdir/usr/bin/hypr-notif-ws"
 }
