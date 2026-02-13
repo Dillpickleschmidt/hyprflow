@@ -85,9 +85,7 @@ def get_workspace_group_windows():
     active = hyprctl_json("activewindow")
     active_address = active.get("address") if active else None
 
-    clients = hyprctl_json("clients")
-    if not clients:
-        return active_address, active_group_id, {}
+    clients = hyprctl_json("clients") or []
 
     groups = {}
     for client in clients:
@@ -96,6 +94,10 @@ def get_workspace_group_windows():
             continue
         group_id = (cws_id - 1) // 10 + 1
         groups.setdefault(group_id, []).append(client)
+
+    # Always include the active group
+    if active_group_id not in groups:
+        groups[active_group_id] = []
 
     for group_id in groups:
         groups[group_id].sort(
@@ -202,6 +204,7 @@ class GroupOverlay(Gtk.Application):
         self._event_buf = b""
         self._active = False
         self._kb_fds = []
+        self._last_key = None
 
     def do_activate(self):
         self.hold()
@@ -229,6 +232,7 @@ class GroupOverlay(Gtk.Application):
 
     def _show(self):
         self._active = True
+        self._last_key = None
         active_addr, active_group_id, groups = get_workspace_group_windows()
         if not groups:
             self._active = False
@@ -243,6 +247,7 @@ class GroupOverlay(Gtk.Application):
             self.groups_box.remove(child)
 
         self._populate_items(active_addr, active_group_id, groups)
+        self.window.set_default_size(1, 1)
 
         if not self.window.get_visible():
             self.window.present()
@@ -260,9 +265,16 @@ class GroupOverlay(Gtk.Application):
             return True
         if not self.window:
             return True
+        key = (active_addr, active_group_id,
+               tuple((g, tuple(w["address"] for w in ws))
+                     for g, ws in sorted(groups.items())))
+        if key == self._last_key:
+            return True
+        self._last_key = key
         while child := self.groups_box.get_first_child():
             self.groups_box.remove(child)
         self._populate_items(active_addr, active_group_id, groups)
+        self.window.set_default_size(1, 1)
         return True
 
     def _quit(self):
@@ -342,41 +354,54 @@ class GroupOverlay(Gtk.Application):
                 header.add_css_class("active-group")
             section.append(header)
 
-            for win in groups[group_id]:
+            if not groups[group_id]:
                 item_box = Gtk.Box(
                     orientation=Gtk.Orientation.HORIZONTAL, spacing=10
                 )
                 item_box.add_css_class("item-box")
-
-                if win["address"] == active_addr:
-                    item_box.add_css_class("active")
-
-                image = Gtk.Image()
-                image.add_css_class("item-image")
-                icon_name = self._resolve_icon(win["class"])
-                if icon_name and icon_theme.has_icon(icon_name):
-                    image.set_from_icon_name(icon_name)
-                else:
-                    image.set_from_icon_name("application-x-executable")
-                item_box.append(image)
-
-                raw_title = win.get("title", "")
-                if len(raw_title) > 70:
-                    raw_title = raw_title[:70] + "..."
-                title = Gtk.Label(label=raw_title)
-                title.add_css_class("item-text")
-                title.set_ellipsize(Pango.EllipsizeMode.END)
-                title.set_hexpand(True)
-                title.set_xalign(0)
-                item_box.append(title)
-
-                ws_id = win.get("workspace", {}).get("id", 0)
-                slot = ws_id - (group_id - 1) * 10
-                number = Gtk.Label(label=str(slot))
-                number.add_css_class("item-number")
-                item_box.append(number)
-
+                item_box.add_css_class("active")
+                label = Gtk.Label(label="No applications")
+                label.add_css_class("item-text")
+                label.set_hexpand(True)
+                label.set_xalign(0)
+                item_box.append(label)
                 section.append(item_box)
+            else:
+                for win in groups[group_id]:
+                    item_box = Gtk.Box(
+                        orientation=Gtk.Orientation.HORIZONTAL, spacing=10
+                    )
+                    item_box.add_css_class("item-box")
+
+                    if win["address"] == active_addr:
+                        item_box.add_css_class("active")
+
+                    image = Gtk.Image()
+                    image.add_css_class("item-image")
+                    icon_name = self._resolve_icon(win["class"])
+                    if icon_name and icon_theme.has_icon(icon_name):
+                        image.set_from_icon_name(icon_name)
+                    else:
+                        image.set_from_icon_name("application-x-executable")
+                    item_box.append(image)
+
+                    raw_title = win.get("title", "")
+                    if len(raw_title) > 70:
+                        raw_title = raw_title[:70] + "..."
+                    title = Gtk.Label(label=raw_title)
+                    title.add_css_class("item-text")
+                    title.set_ellipsize(Pango.EllipsizeMode.NONE)
+                    title.set_hexpand(True)
+                    title.set_xalign(0)
+                    item_box.append(title)
+
+                    ws_id = win.get("workspace", {}).get("id", 0)
+                    slot = ws_id - (group_id - 1) * 10
+                    number = Gtk.Label(label=str(slot))
+                    number.add_css_class("item-number")
+                    item_box.append(number)
+
+                    section.append(item_box)
 
             self.groups_box.append(section)
 
