@@ -157,11 +157,6 @@ if m_has_feature "group_overlay"; then
         sed -i '/^# BEGIN hypr-group-overlay$/,/^# END hypr-group-overlay$/d' "$bindings_file"
         success "Group overlay: removed keybindings"
     fi
-    looknfeel="$HOME/.config/hypr/looknfeel.conf"
-    if [[ -f "$looknfeel" ]] && grep -q '# BEGIN hypr-group-overlay groupbar' "$looknfeel" 2>/dev/null; then
-        sed -i '/^# BEGIN hypr-group-overlay groupbar$/,/^# END hypr-group-overlay groupbar$/d' "$looknfeel"
-        success "Group overlay: re-enabled built-in groupbar"
-    fi
 fi
 
 # ─── Revert: notifications ───────────────────────────────────

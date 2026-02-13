@@ -46,25 +46,4 @@ bindn = ALT, Super_L, exec, kill -USR2 $(cat $XDG_RUNTIME_DIR/hypr-group-overlay
 OVERLAY
         success "Group overlay: added keybindings"
     fi
-
-    # Disable built-in groupbar
-    local looknfeel="$HOME/.config/hypr/looknfeel.conf"
-    if [[ -f "$looknfeel" ]]; then
-        if grep -q '# BEGIN hypr-group-overlay groupbar' "$looknfeel" 2>/dev/null || grep -qE '^\s*groupbar\s*\{' "$looknfeel" 2>/dev/null; then
-            info "Group overlay: groupbar already configured"
-        else
-            cat >> "$looknfeel" << 'GROUPBAR'
-
-# BEGIN hypr-group-overlay groupbar
-# Disable built-in groupbar (replaced by hypr-group-overlay)
-group {
-    groupbar {
-        enabled = false
-    }
-}
-# END hypr-group-overlay groupbar
-GROUPBAR
-            success "Group overlay: disabled built-in groupbar"
-        fi
-    fi
 }
