@@ -1,0 +1,27 @@
+#!/bin/bash
+# hypr-devns-exec — namespace-aware app launcher
+# Wraps any command to run inside the active workspace's network namespace.
+# Creates the namespace on-demand if the daemon hasn't set it up yet.
+# Falls through to direct exec if workspace ID is invalid.
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+if [ $# -eq 0 ]; then
+    echo "usage: hypr-devns-exec <command...>" >&2
+    exit 1
+fi
+
+ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
+
+if [ "$ws_id" -gt 0 ] 2>/dev/null; then
+    ns="$(devns_ns_name "$ws_id")"
+    if [ ! -e "/run/netns/${ns}" ]; then
+        sudo /usr/bin/hypr-devns-helper create "$ws_id" 2>/dev/null
+    fi
+    if [ -e "/run/netns/${ns}" ]; then
+        export DEVNS_WS="$ws_id"
+        exec sudo -E /usr/bin/hypr-devns-nsexec "$ns" "$(id -u)" "$(id -g)" "$@"
+    fi
+fi
+
+exec "$@"

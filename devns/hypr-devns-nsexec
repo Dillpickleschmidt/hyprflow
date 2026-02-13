@@ -1,0 +1,41 @@
+#!/bin/bash
+# hypr-devns-nsexec — privileged exec-in-namespace helper
+# Runs as root via sudo. Enters namespace with DNS bind-mount, drops to calling user.
+#
+# Usage: hypr-devns-nsexec <namespace> <uid> <gid> <command...>
+
+set -euo pipefail
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+ns_name="${1:?usage: hypr-devns-nsexec <namespace> <uid> <gid> <command...>}"
+uid="${2:?missing uid}"
+gid="${3:?missing gid}"
+shift 3
+
+if [ $# -eq 0 ]; then
+    echo "error: no command specified" >&2
+    exit 1
+fi
+
+ns_id="${ns_name#hyprns_}"
+if [ "$ns_name" = "$ns_id" ] || ! devns_validate_id "$ns_id"; then
+    echo "error: invalid namespace name '$ns_name'" >&2
+    exit 1
+fi
+
+if ! [[ "$uid" =~ ^[0-9]+$ ]] || ! [[ "$gid" =~ ^[0-9]+$ ]]; then
+    echo "error: uid and gid must be numeric" >&2
+    exit 1
+fi
+
+if [ ! -e "/run/netns/${ns_name}" ]; then
+    echo "error: namespace '$ns_name' does not exist" >&2
+    exit 1
+fi
+
+if [ -n "${DEVNS_WS:-}" ]; then
+    export PATH="/usr/share/hypr-workflow/bin:$PATH"
+fi
+
+exec ip netns exec "$ns_name" setpriv --reuid="$uid" --regid="$gid" --init-groups -- "$@"

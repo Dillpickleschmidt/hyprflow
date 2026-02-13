@@ -1,0 +1,79 @@
+#!/bin/bash
+# hypr-devns-disable — remove hypr-devns integration from Omarchy/Hyprland configs
+# Does not uninstall the package, just undoes what hypr-devns-setup did.
+
+set -euo pipefail
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+info() { echo "  $1"; }
+
+echo "hypr-devns: removing configuration"
+echo
+
+# 1. Autostart
+if grep -q 'hypr-devns-daemon' "$DEVNS_AUTOSTART" 2>/dev/null; then
+    sed -i '/hypr-devns-daemon/d' "$DEVNS_AUTOSTART"
+    info "autostart: removed"
+fi
+
+# 2. Bindings — unwrap hypr-devns-exec from variables
+if grep -q 'hypr-devns-exec' "$DEVNS_BINDINGS" 2>/dev/null; then
+    sed -i 's/hypr-devns-exec //g' "$DEVNS_BINDINGS"
+    info "bindings: unwrapped"
+fi
+
+# 3. Elephant
+if grep -q 'hypr-devns-exec' "$DEVNS_ELEPHANT" 2>/dev/null; then
+    sed -i '/hypr-devns-exec/d' "$DEVNS_ELEPHANT"
+    info "elephant: removed launch_prefix"
+fi
+
+# 4. Ghostty desktop override
+if [ -f "$DEVNS_GHOSTTY_USER" ]; then
+    rm "$DEVNS_GHOSTTY_USER"
+    info "ghostty: removed desktop override"
+fi
+
+# 5. Browser extensions — Chromium/Helium
+remove_load_extension() {
+    local flags_file="$1"
+    local label="$2"
+    [ -f "$flags_file" ] || return
+    if ! grep -q "${DEVNS_CHROMIUM_EXTENSION_DIR}" "$flags_file" 2>/dev/null; then return; fi
+    # Remove our extension from comma-separated list
+    sed -i "s|,${DEVNS_CHROMIUM_EXTENSION_DIR}||g; s|${DEVNS_CHROMIUM_EXTENSION_DIR},||g; s|${DEVNS_CHROMIUM_EXTENSION_DIR}||g" "$flags_file"
+    # Clean up empty --load-extension= lines
+    sed -i '/^--load-extension=$/d' "$flags_file"
+    info "${label}: removed extension"
+}
+
+remove_load_extension "$DEVNS_CHROMIUM_FLAGS" "chromium"
+remove_load_extension "$DEVNS_HELIUM_FLAGS" "helium"
+
+# 6. Browser extensions — Zen
+if [ -f "$DEVNS_ZEN_POLICIES" ] && grep -q 'hypr-devns@localhost' "$DEVNS_ZEN_POLICIES" 2>/dev/null; then
+    jq 'del(.policies.ExtensionSettings["hypr-devns@localhost"])' "$DEVNS_ZEN_POLICIES" | sudo tee "$DEVNS_ZEN_POLICIES.tmp" > /dev/null
+    sudo mv "$DEVNS_ZEN_POLICIES.tmp" "$DEVNS_ZEN_POLICIES"
+    info "zen: removed extension policy"
+fi
+
+# 7. Docker runtime — remove devns runtime
+if [ -f "$DEVNS_DOCKER_DAEMON_JSON" ] && grep -q 'hypr-devns-runc' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null; then
+    dns_json=$(echo "$DEVNS_DNS" | jq -R '[split(" ") | .[] | select(. != "")]')
+    jq --argjson devns_dns "$dns_json" '
+        del(.runtimes.devns) |
+        if ."default-runtime" == "devns" then del(."default-runtime") else . end |
+        if .dns == $devns_dns then del(.dns) else . end
+    ' "$DEVNS_DOCKER_DAEMON_JSON" | sudo tee "$DEVNS_DOCKER_DAEMON_JSON.tmp" > /dev/null
+    sudo mv "$DEVNS_DOCKER_DAEMON_JSON.tmp" "$DEVNS_DOCKER_DAEMON_JSON"
+    sudo systemctl reload docker 2>/dev/null || true
+    info "docker: removed devns runtime"
+fi
+
+# 8. Kill daemon and clean up namespaces
+pkill -f hypr-devns-daemon 2>/dev/null || true
+sudo /usr/bin/hypr-devns-helper destroy-all 2>/dev/null || true
+
+echo
+echo "Done. Restart Hyprland or reboot to complete."

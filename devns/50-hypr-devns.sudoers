@@ -1,0 +1,4 @@
+%wheel ALL=(root) NOPASSWD: /usr/bin/hypr-devns-helper create [0-9]*
+%wheel ALL=(root) NOPASSWD: /usr/bin/hypr-devns-helper destroy [0-9]*
+%wheel ALL=(root) NOPASSWD: /usr/bin/hypr-devns-helper destroy-all
+%wheel ALL=(root) NOPASSWD: SETENV: /usr/bin/hypr-devns-nsexec *

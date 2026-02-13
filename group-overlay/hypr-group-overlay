@@ -34,7 +34,7 @@ gi.require_version("GioUnix", "2.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 
-from gi.repository import Gdk, GLib, Gio, GioUnix, Gtk
+from gi.repository import Gdk, GLib, Gio, GioUnix, Gtk, Pango
 from gi.repository import Gtk4LayerShell as LayerShell
 
 EV_KEY = 0x01
@@ -157,14 +157,17 @@ def find_keyboard_devices():
         path = f"/dev/input/{entry}"
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-            key_bits = bytearray(96)
-            fcntl.ioctl(fd, EVIOCGBIT(EV_KEY, 96), key_bits)
-            has_meta = bool(key_bits[125 // 8] & (1 << (125 % 8)))
-            has_alt = bool(key_bits[56 // 8] & (1 << (56 % 8)))
-            if has_meta and has_alt:
-                devices.append(fd)
-            else:
-                os.close(fd)
+            try:
+                key_bits = bytearray(96)
+                fcntl.ioctl(fd, EVIOCGBIT(EV_KEY, 96), key_bits)
+                has_meta = bool(key_bits[125 // 8] & (1 << (125 % 8)))
+                has_alt = bool(key_bits[56 // 8] & (1 << (56 % 8)))
+                if has_meta and has_alt:
+                    devices.append(fd)
+                    continue
+            except OSError:
+                pass
+            os.close(fd)
         except (OSError, PermissionError):
             pass
     return devices
@@ -338,7 +341,7 @@ class GroupOverlay(Gtk.Application):
 
             title = Gtk.Label(label=win.get("title", ""))
             title.add_css_class("item-text")
-            title.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+            title.set_ellipsize(Pango.EllipsizeMode.END)
             title.set_hexpand(True)
             title.set_xalign(0)
             item_box.append(title)
@@ -361,7 +364,10 @@ class GroupOverlay(Gtk.Application):
         return None
 
 
-PID_FILE = "/tmp/hypr-group-overlay.pid"
+PID_FILE = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+    "hypr-group-overlay.pid",
+)
 
 
 def main():
@@ -369,12 +375,15 @@ def main():
         with open(PID_FILE) as f:
             old_pid = int(f.read().strip())
         if old_pid != os.getpid():
-            os.kill(old_pid, signal.SIGKILL)
+            os.kill(old_pid, signal.SIGTERM)
     except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
         pass
 
-    with open(PID_FILE, "w") as f:
+    # Atomic write: temp file + rename prevents TOCTOU race
+    tmp = PID_FILE + ".tmp"
+    with open(tmp, "w") as f:
         f.write(str(os.getpid()))
+    os.rename(tmp, PID_FILE)
 
     app = GroupOverlay()
     app.run(None)

@@ -1,0 +1,52 @@
+#!/bin/bash
+# hypr-devns docker wrapper — isolates compose projects per workspace.
+# Injected via PATH from hypr-devns-nsexec when DEVNS_WS is set.
+#
+# 1. Sets COMPOSE_PROJECT_NAME to "<directory>-ws<id>" for independent containers.
+# 2. Strips port publishing for up/create/run — ports are redundant in namespaces
+#    and conflict since Docker's port allocator is global.
+
+REAL_DOCKER="$(type -ap docker | grep -v /usr/share/hypr-workflow | head -1)"
+
+if [ -z "$REAL_DOCKER" ]; then
+    echo "error: docker not found in PATH" >&2
+    exit 1
+fi
+
+if [ -z "$DEVNS_WS" ] || [[ "${1:-}" != "compose" ]]; then
+    exec "$REAL_DOCKER" "$@"
+fi
+
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd)")-ws${DEVNS_WS}}"
+
+shift # "compose"
+args=("$@")
+pre=()
+cmd_idx=-1
+skip=false
+
+for i in "${!args[@]}"; do
+    if $skip; then pre+=("${args[$i]}"); skip=false; continue; fi
+    case "${args[$i]}" in
+        -f|--file|-p|--project-name|--profile|--project-directory|--env-file)
+            pre+=("${args[$i]}"); skip=true ;;
+        --file=*|--project-name=*|--profile=*|--project-directory=*|--env-file=*)
+            pre+=("${args[$i]}") ;;
+        -*) pre+=("${args[$i]}") ;;
+        *) cmd_idx=$i; break ;;
+    esac
+done
+
+if [[ $cmd_idx -ge 0 ]]; then
+    cmd="${args[$cmd_idx]}"
+    post=("${args[@]:$((cmd_idx+1))}")
+    if [[ "$cmd" == "up" || "$cmd" == "create" || "$cmd" == "run" ]]; then
+        resolved=$("$REAL_DOCKER" compose "${pre[@]}" config --format json 2>/dev/null)
+        if [[ "$resolved" == "{"* ]]; then
+            stripped=$(echo "$resolved" | jq 'del(.services[].ports, .services[].profiles)')
+            [[ $? -eq 0 ]] && exec "$REAL_DOCKER" compose --project-directory "$(pwd)" -f - "$cmd" "${post[@]}" <<< "$stripped"
+        fi
+    fi
+fi
+
+exec "$REAL_DOCKER" compose "$@"

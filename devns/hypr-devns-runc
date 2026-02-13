@@ -1,0 +1,133 @@
+#!/bin/bash
+# hypr-devns-runc — OCI runtime wrapper that injects workspace network namespaces
+# into Docker containers. Installed as a Docker runtime via daemon.json.
+# Same pattern NVIDIA uses for GPU injection.
+#
+# On "create": patches config.json to place container in the active workspace's netns
+# On "delete": cleans up cached workspace mapping
+# All commands: exec real runc with (possibly modified) args
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+REAL_RUNC=/usr/bin/runc
+CACHE_DIR=/run/hypr-devns/containers
+
+# Container ID is always the last positional argument
+container_id="${@: -1}"
+
+# Find subcommand
+subcommand=""
+for arg in "$@"; do
+    case "$arg" in
+        checkpoint|create|delete|events|exec|kill|list|pause|ps|restore|resume|run|spec|start|state|update)
+            subcommand="$arg"
+            break
+            ;;
+    esac
+done
+
+# Find --bundle/-b path
+bundle=""
+next_is_bundle=false
+for arg in "$@"; do
+    if $next_is_bundle; then
+        bundle="$arg"
+        break
+    fi
+    case "$arg" in
+        --bundle|-b)
+            next_is_bundle=true
+            ;;
+        --bundle=*)
+            bundle="${arg#--bundle=}"
+            break
+            ;;
+    esac
+done
+
+# --- Create: inject network namespace ---
+if [ "$subcommand" = "create" ] && [ -n "$bundle" ] && [ -n "$container_id" ]; then
+    config="$bundle/config.json"
+
+    if [ -f "$config" ]; then
+        # Use cached workspace if exists, otherwise read active-ws
+        ws=""
+        if [ -f "$CACHE_DIR/$container_id" ]; then
+            ws=$(cat "$CACHE_DIR/$container_id")
+        else
+            active_ws_file=$(ls /run/user/*/hypr-devns/active-ws 2>/dev/null | head -1)
+            if [ -n "$active_ws_file" ]; then
+                ws=$(cat "$active_ws_file")
+            fi
+        fi
+
+        if [ -n "$ws" ] && [ -e "/var/run/netns/$(devns_ns_name "$ws")" ]; then
+            nspath="/var/run/netns/$(devns_ns_name "$ws")"
+
+            has_netns=$(jq -e '.linux.namespaces[] | select(.type == "network")' "$config" 2>/dev/null)
+
+            if [ -n "$has_netns" ]; then
+                patched=$(jq --arg nspath "$nspath" \
+                    '(.linux.namespaces[] | select(.type == "network")).path = $nspath' \
+                    "$config" 2>/dev/null)
+            else
+                patched=$(jq --arg nspath "$nspath" \
+                    '.linux.namespaces += [{"type": "network", "path": $nspath}]' \
+                    "$config" 2>/dev/null)
+            fi
+
+            if [ -n "$patched" ]; then
+                echo "$patched" > "$config"
+
+                mkdir -p "$CACHE_DIR"
+                echo "$ws" > "$CACHE_DIR/$container_id"
+
+                # Serialize networking per workspace to prevent eth0 naming conflicts.
+                # Docker's bridge driver names each container's veth "eth0" inside the
+                # namespace. Compose starts containers in parallel, so without locking
+                # the second container's rename races with the first. A background poller
+                # inherits the lock fd and holds it until eth0 appears, ensuring only
+                # one container goes through runc-create -> bridge-join at a time.
+                lockfile="/run/hypr-devns/ns_${ws}.lock"
+                exec 9>"$lockfile"
+                flock 9
+
+                # Preserve subnet routes in table 200 and rename ethN interfaces
+                # so the new container can claim eth0 and its subnet routes.
+                ifaces=$(nsenter --net="$nspath" ip -o link show 2>/dev/null | grep -oP '(?<=: )eth\d+(?=[@:])' || true)
+                echo "$ifaces" | while read -r iface; do
+                    [ -z "$iface" ] && continue
+                    # Copy non-default routes to table 200 as fallback
+                    nsenter --net="$nspath" ip route show dev "$iface" table main 2>/dev/null |
+                        grep -v "^default" | while read -r route; do
+                            nsenter --net="$nspath" ip route add $route dev "$iface" table 200 2>/dev/null || true
+                        done
+                    nsenter --net="$nspath" ip route flush dev "$iface" table main 2>/dev/null || true
+
+                    suffix=$(head -c 4 /dev/urandom | od -An -tx4 | tr -d ' ')
+                    nsenter --net="$nspath" ip link set "$iface" \
+                        name "_${iface}_${suffix:0:4}" 2>/dev/null || true
+                done
+
+                # Poller holds the lock until bridge driver finishes setting up eth0 (5s timeout).
+                # Waits for an IP address (not just existence) to ensure the full bridge
+                # join completes before the next container renames the interface.
+                (
+                    for _ in $(seq 1 100); do  # 100 * 50ms = 5s
+                        nsenter --net="$nspath" ip -4 addr show dev eth0 2>/dev/null | grep -q inet && break
+                        sleep 0.05
+                    done
+                ) &
+
+                exec 9>&-
+            fi
+        fi
+    fi
+fi
+
+# --- Delete: clean up cache ---
+if [ "$subcommand" = "delete" ] && [ -n "$container_id" ]; then
+    rm -f "$CACHE_DIR/$container_id" 2>/dev/null
+fi
+
+exec "$REAL_RUNC" "$@"

@@ -1,0 +1,132 @@
+#!/bin/bash
+# hypr-devns-setup — configure Omarchy/Hyprland for per-workspace network namespaces
+# Run after installing the hypr-workflow package. Idempotent.
+
+set -euo pipefail
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+info() { echo "  $1"; }
+
+echo "hypr-devns: configuring per-workspace network namespaces"
+echo
+
+# 1. Autostart
+if grep -q 'hypr-devns-daemon' "$DEVNS_AUTOSTART" 2>/dev/null; then
+    info "autostart: already configured"
+else
+    echo 'exec-once = hypr-devns-daemon' >> "$DEVNS_AUTOSTART"
+    info "autostart: added hypr-devns-daemon"
+fi
+
+# 2. Bindings — wrap $terminal with hypr-devns-exec
+if grep -q 'hypr-devns-exec' "$DEVNS_BINDINGS" 2>/dev/null; then
+    info "bindings: already configured"
+else
+    if grep -q '^\$terminal = ' "$DEVNS_BINDINGS"; then
+        sed -i 's/^\$terminal = /\$terminal = hypr-devns-exec /' "$DEVNS_BINDINGS"
+        info "bindings: wrapped \$terminal with hypr-devns-exec"
+    else
+        info "bindings: \$terminal binding not found, skipping"
+    fi
+fi
+
+# 3. Elephant (Walker app launcher)
+if [ -f "$DEVNS_ELEPHANT" ]; then
+    if grep -q 'hypr-devns-exec' "$DEVNS_ELEPHANT" 2>/dev/null; then
+        info "elephant: already configured"
+    elif grep -q '^launch_prefix' "$DEVNS_ELEPHANT" 2>/dev/null; then
+        sed -i 's|^launch_prefix.*|launch_prefix = "hypr-devns-exec uwsm-app --"|' "$DEVNS_ELEPHANT"
+        info "elephant: replaced existing launch_prefix"
+    else
+        echo 'launch_prefix = "hypr-devns-exec uwsm-app --"' >> "$DEVNS_ELEPHANT"
+        info "elephant: added launch_prefix"
+    fi
+else
+    mkdir -p "$(dirname "$DEVNS_ELEPHANT")"
+    echo 'launch_prefix = "hypr-devns-exec uwsm-app --"' > "$DEVNS_ELEPHANT"
+    info "elephant: created with launch_prefix"
+fi
+
+# 4. Ghostty — override desktop file to disable single-instance
+if [ -f "$DEVNS_GHOSTTY_SYSTEM" ]; then
+    if [ -f "$DEVNS_GHOSTTY_USER" ] && grep -q 'gtk-single-instance=false' "$DEVNS_GHOSTTY_USER"; then
+        info "ghostty: already configured"
+    else
+        mkdir -p "$(dirname "$DEVNS_GHOSTTY_USER")"
+        sed 's/--gtk-single-instance=true/--gtk-single-instance=false/g' \
+            "$DEVNS_GHOSTTY_SYSTEM" > "$DEVNS_GHOSTTY_USER"
+        info "ghostty: created desktop override (single-instance disabled)"
+    fi
+else
+    info "ghostty: not installed, skipping"
+fi
+
+# 5. Browser extensions — Chromium/Helium
+add_load_extension() {
+    local flags_file="$1"
+    local label="$2"
+    if [ ! -f "$flags_file" ]; then
+        echo "--load-extension=${DEVNS_CHROMIUM_EXTENSION_DIR}" > "$flags_file"
+        info "${label}: created with --load-extension"
+        return
+    fi
+    if grep -q "${DEVNS_CHROMIUM_EXTENSION_DIR}" "$flags_file" 2>/dev/null; then
+        info "${label}: extension already configured"
+        return
+    fi
+    if grep -q '\-\-load-extension=' "$flags_file"; then
+        sed -i "s|--load-extension=\([^ ]*\)|--load-extension=\1,${DEVNS_CHROMIUM_EXTENSION_DIR}|" "$flags_file"
+        info "${label}: appended to existing --load-extension"
+    else
+        echo "--load-extension=${DEVNS_CHROMIUM_EXTENSION_DIR}" >> "$flags_file"
+        info "${label}: added --load-extension"
+    fi
+}
+
+add_load_extension "$DEVNS_CHROMIUM_FLAGS" "chromium"
+if command -v helium-browser &>/dev/null; then
+    add_load_extension "$DEVNS_HELIUM_FLAGS" "helium"
+else
+    info "helium: not installed, skipping"
+fi
+
+# 6. Browser extensions — Zen (Firefox)
+if [ -d "$(dirname "$DEVNS_ZEN_POLICIES")" ]; then
+    if [ -f "$DEVNS_ZEN_POLICIES" ] && grep -q 'hypr-devns@localhost' "$DEVNS_ZEN_POLICIES" 2>/dev/null; then
+        info "zen: extension already configured"
+    else
+        # Merge ExtensionSettings into existing policies.json
+        ext_policy='{"ExtensionSettings":{"hypr-devns@localhost":{"installation_mode":"normal_installed","install_url":"file:///usr/share/hypr-workflow/extension/firefox/"}}}'
+        if [ -f "$DEVNS_ZEN_POLICIES" ]; then
+            # Merge with existing using jq
+            merged=$(jq --argjson ext "$ext_policy" '.policies = (.policies // {}) * $ext' "$DEVNS_ZEN_POLICIES")
+            echo "$merged" | sudo tee "$DEVNS_ZEN_POLICIES" > /dev/null
+        else
+            echo "{\"policies\": ${ext_policy}}" | sudo tee "$DEVNS_ZEN_POLICIES" > /dev/null
+        fi
+        info "zen: added extension policy"
+    fi
+else
+    info "zen: not installed, skipping"
+fi
+
+# 7. Docker runtime — register hypr-devns-runc as default runtime
+if [ -f "$DEVNS_DOCKER_DAEMON_JSON" ] && grep -q 'hypr-devns-runc' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null; then
+    info "docker: runtime already configured"
+else
+    dns_json=$(echo "$DEVNS_DNS" | jq -R '[split(" ") | .[] | select(. != "")]')
+    devns_runtime=$(jq -n --argjson dns "$dns_json" '{"default-runtime":"devns","runtimes":{"devns":{"path":"/usr/bin/hypr-devns-runc"}},"dns":$dns}')
+    if [ -f "$DEVNS_DOCKER_DAEMON_JSON" ]; then
+        merged=$(jq --argjson rt "$devns_runtime" '. * $rt' "$DEVNS_DOCKER_DAEMON_JSON")
+        echo "$merged" | sudo tee "$DEVNS_DOCKER_DAEMON_JSON" > /dev/null
+    else
+        sudo mkdir -p "$(dirname "$DEVNS_DOCKER_DAEMON_JSON")"
+        echo "$devns_runtime" | jq . | sudo tee "$DEVNS_DOCKER_DAEMON_JSON" > /dev/null
+    fi
+    sudo systemctl reload docker 2>/dev/null || true
+    info "docker: registered devns runtime"
+fi
+
+echo
+echo "Done. Restart Hyprland or reboot to activate."

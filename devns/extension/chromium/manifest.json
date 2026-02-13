@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "hypr-devns",
+  "version": "1.0",
+  "description": "Routes localhost traffic through per-workspace network namespaces",
+  "permissions": [
+    "proxy",
+    "declarativeNetRequest",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["cookie-isolate-bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["cookie-isolate.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

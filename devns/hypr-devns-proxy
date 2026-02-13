@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+"""hypr-devns-proxy — HTTP proxy routing localhost to per-workspace namespaces.
+
+Listens on 127.0.0.1:18800. Routes requests based on:
+  - X-Devns-WS header (Chromium extension)
+  - Proxy-Authorization header (Firefox extension)
+Maps workspace ID to 10.200.<ws>.2 and forwards the request.
+"""
+
+import asyncio
+import base64
+import os
+import signal
+from urllib.parse import urlparse
+
+LISTEN_HOST = "127.0.0.1"
+LISTEN_PORT = 18800
+ACTIVE_WS_PATH = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+    "hypr-devns",
+    "active-ws",
+)
+
+
+def namespace_ip(ws_id: str) -> str:
+    return f"10.200.{ws_id}.2"
+
+
+def read_active_workspace() -> str:
+    try:
+        with open(ACTIVE_WS_PATH) as f:
+            return f.read().strip()
+    except OSError:
+        return "1"
+
+
+async def relay(src: asyncio.StreamReader, dst: asyncio.StreamWriter):
+    try:
+        while True:
+            data = await src.read(65536)
+            if not data:
+                break
+            dst.write(data)
+            await dst.drain()
+    except (ConnectionError, OSError):
+        pass
+    finally:
+        try:
+            dst.close()
+        except OSError:
+            pass
+
+
+async def bidirectional_relay(
+    reader_a: asyncio.StreamReader,
+    writer_a: asyncio.StreamWriter,
+    reader_b: asyncio.StreamReader,
+    writer_b: asyncio.StreamWriter,
+):
+    await asyncio.gather(
+        relay(reader_a, writer_b),
+        relay(reader_b, writer_a),
+    )
+
+
+async def read_headers(reader: asyncio.StreamReader) -> tuple[bytes, list[bytes]] | None:
+    request_line = await reader.readline()
+    if not request_line or request_line == b"\r\n":
+        return None
+    headers: list[bytes] = []
+    while True:
+        line = await reader.readline()
+        if not line or line == b"\r\n":
+            break
+        headers.append(line)
+    return request_line, headers
+
+
+def parse_workspace(headers: list[bytes]) -> tuple[str | None, list[bytes]]:
+    ws_id = None
+    filtered: list[bytes] = []
+    for h in headers:
+        lower = h.lower()
+        if lower.startswith(b"x-devns-ws:"):
+            ws_id = h.split(b":", 1)[1].strip().decode()
+        elif lower.startswith(b"proxy-authorization:"):
+            # Format: Basic base64("devns:<ws_id>")
+            try:
+                val = h.split(b":", 1)[1].strip()
+                if val.lower().startswith(b"basic "):
+                    decoded = base64.b64decode(val[6:]).decode()
+                    if decoded.startswith("devns:"):
+                        ws_id = decoded[6:]
+            except Exception:
+                pass
+            # Always strip proxy-authorization
+        else:
+            filtered.append(h)
+    return ws_id, filtered
+
+
+def parse_request_line(line: bytes) -> tuple[str, str, str]:
+    parts = line.decode().strip().split(" ", 2)
+    if len(parts) != 3:
+        raise ValueError(f"Bad request line: {line!r}")
+    return parts[0], parts[1], parts[2]
+
+
+def extract_host_port(target: str) -> tuple[str, int]:
+    if ":" in target:
+        host, port_str = target.rsplit(":", 1)
+        return host, int(port_str)
+    return target, 80
+
+
+def rewrite_url(method: str, url: str) -> tuple[str, str, int]:
+    """Rewrite absolute proxy URL to origin-form. Returns (path, host, port)."""
+    if url.startswith("http://"):
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 80
+        return path, host, port
+    # Already origin-form
+    return url, "localhost", 80
+
+
+def get_content_length(headers: list[bytes]) -> int | None:
+    for h in headers:
+        if h.lower().startswith(b"content-length:"):
+            return int(h.split(b":", 1)[1].strip())
+    return None
+
+
+def is_chunked(headers: list[bytes]) -> bool:
+    for h in headers:
+        if h.lower().startswith(b"transfer-encoding:"):
+            return b"chunked" in h.lower()
+    return False
+
+
+async def forward_body(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    headers: list[bytes],
+    read_until_close: bool = False,
+):
+    cl = get_content_length(headers)
+    if cl is not None and cl >= 0:
+        remaining = cl
+        while remaining > 0:
+            chunk = await reader.read(min(remaining, 65536))
+            if not chunk:
+                break
+            writer.write(chunk)
+            remaining -= len(chunk)
+        await writer.drain()
+    elif is_chunked(headers):
+        while True:
+            size_line = await reader.readline()
+            writer.write(size_line)
+            size = int(size_line.strip(), 16)
+            if size == 0:
+                # Trailing CRLF
+                trailer = await reader.readline()
+                writer.write(trailer)
+                await writer.drain()
+                break
+            data = await reader.readexactly(size)
+            writer.write(data)
+            crlf = await reader.readexactly(2)
+            writer.write(crlf)
+            await writer.drain()
+    elif read_until_close:
+        while True:
+            data = await reader.read(65536)
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+
+
+def is_upgrade_response(headers: list[bytes]) -> bool:
+    for h in headers:
+        if h.lower().startswith(b"upgrade:"):
+            return True
+    return False
+
+
+def rewrite_request_cookies(headers: list[bytes], ws_id: str) -> list[bytes]:
+    """Strip workspace prefix from Cookie headers before forwarding to backend."""
+    prefix = f"_ws{ws_id}_".encode()
+    result: list[bytes] = []
+    for h in headers:
+        if not h.lower().startswith(b"cookie:"):
+            result.append(h)
+            continue
+        pairs = [p.strip() for p in h.split(b":", 1)[1].strip().split(b";") if p.strip()]
+        kept = []
+        for pair in pairs:
+            name = pair.split(b"=", 1)[0]
+            if name.startswith(prefix):
+                kept.append(pair[len(prefix):])
+        if kept:
+            result.append(b"Cookie: " + b"; ".join(kept) + b"\r\n")
+    return result
+
+
+def rewrite_response_cookies(headers: list[bytes], ws_id: str) -> list[bytes]:
+    """Add workspace prefix to Set-Cookie cookie names before sending to browser."""
+    prefix = f"_ws{ws_id}_".encode()
+    result: list[bytes] = []
+    for h in headers:
+        if not h.lower().startswith(b"set-cookie:"):
+            result.append(h)
+            continue
+        val = h.split(b":", 1)[1].strip()
+        eq = val.find(b"=")
+        if eq == -1:
+            result.append(h)
+            continue
+        name = val[:eq]
+        rest = val[eq:]
+        result.append(b"Set-Cookie: " + prefix + name + rest + b"\r\n")
+    return result
+
+
+async def handle_api(writer: asyncio.StreamWriter, path: str):
+    if path == "/__devns/workspace":
+        ws = read_active_workspace()
+        body = ws.encode()
+        response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Access-Control-Allow-Origin: *\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+            b"Connection: close\r\n"
+            b"\r\n" + body
+        )
+        writer.write(response)
+        await writer.drain()
+        writer.close()
+        return True
+    return False
+
+
+async def handle_connect(
+    client_reader: asyncio.StreamReader,
+    client_writer: asyncio.StreamWriter,
+    target: str,
+    ws_id: str | None,
+):
+    host, port = extract_host_port(target)
+    if host in ("localhost", "127.0.0.1"):
+        dest_host = namespace_ip(ws_id or read_active_workspace())
+    else:
+        dest_host = host
+    try:
+        remote_reader, remote_writer = await asyncio.open_connection(dest_host, port)
+    except OSError:
+        err = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"
+        client_writer.write(err)
+        await client_writer.drain()
+        client_writer.close()
+        return
+    client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+    await client_writer.drain()
+    await bidirectional_relay(client_reader, client_writer, remote_reader, remote_writer)
+
+
+async def handle_http(
+    client_reader: asyncio.StreamReader,
+    client_writer: asyncio.StreamWriter,
+    method: str,
+    url: str,
+    version: str,
+    headers: list[bytes],
+    ws_id: str | None,
+):
+    path, host, port = rewrite_url(method, url)
+
+    if host in ("localhost", "127.0.0.1"):
+        dest_host = namespace_ip(ws_id or read_active_workspace())
+    else:
+        dest_host = host
+
+    try:
+        remote_reader, remote_writer = await asyncio.open_connection(dest_host, port)
+    except OSError:
+        err = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        client_writer.write(err)
+        await client_writer.drain()
+        client_writer.close()
+        return
+
+    # Rewrite Host header to target server address
+    rewritten_headers: list[bytes] = []
+    for h in headers:
+        if h.lower().startswith(b"host:"):
+            host_val = host if port == 80 else f"{host}:{port}"
+            rewritten_headers.append(f"Host: {host_val}\r\n".encode())
+        else:
+            rewritten_headers.append(h)
+    headers = rewritten_headers
+
+    if ws_id is not None:
+        headers = rewrite_request_cookies(headers, ws_id)
+
+    request = f"{method} {path} {version}\r\n".encode()
+    remote_writer.write(request)
+    for h in headers:
+        remote_writer.write(h)
+    remote_writer.write(b"\r\n")
+    await remote_writer.drain()
+
+    await forward_body(client_reader, remote_writer, headers)
+
+    # Read response
+    resp_line = await remote_reader.readline()
+    if not resp_line:
+        client_writer.close()
+        remote_writer.close()
+        return
+
+    resp_headers: list[bytes] = []
+    while True:
+        line = await remote_reader.readline()
+        if not line or line == b"\r\n":
+            break
+        resp_headers.append(line)
+
+    if ws_id is not None:
+        resp_headers = rewrite_response_cookies(resp_headers, ws_id)
+
+    client_writer.write(resp_line)
+    for h in resp_headers:
+        client_writer.write(h)
+    client_writer.write(b"\r\n")
+    await client_writer.drain()
+
+    # Check for 101 upgrade (WebSocket)
+    if resp_line.startswith(b"HTTP/1.1 101") or is_upgrade_response(resp_headers):
+        await bidirectional_relay(
+            client_reader, client_writer, remote_reader, remote_writer
+        )
+        return
+
+    # 1xx, 204, 304, and HEAD responses have no body — skip to avoid blocking on keep-alive
+    status = int(resp_line.split(b" ", 2)[1])
+    has_body = status >= 200 and status != 204 and status != 304 and method != "HEAD"
+    if has_body:
+        await forward_body(remote_reader, client_writer, resp_headers, read_until_close=True)
+
+    # Check if keep-alive (HTTP/1.0 defaults to close)
+    is_http10 = resp_line.startswith(b"HTTP/1.0")
+    connection_close = is_http10
+    for h in resp_headers:
+        if h.lower().startswith(b"connection:"):
+            connection_close = b"close" in h.lower()
+    if connection_close:
+        client_writer.close()
+        remote_writer.close()
+    else:
+        remote_writer.close()
+
+
+async def handle_client(
+    client_reader: asyncio.StreamReader,
+    client_writer: asyncio.StreamWriter,
+):
+    try:
+        while True:
+            result = await read_headers(client_reader)
+            if result is None:
+                break
+            request_line, raw_headers = result
+            method, url, version = parse_request_line(request_line)
+            ws_id, headers = parse_workspace(raw_headers)
+
+            # API endpoint
+            if url == "/__devns/workspace" or url.startswith("http://127.0.0.1:18800/__devns/"):
+                path = "/__devns/" + url.split("/__devns/")[1]
+                await handle_api(client_writer, path)
+                return
+
+            if method == "CONNECT":
+                await handle_connect(client_reader, client_writer, url, ws_id)
+                return
+
+            await handle_http(
+                client_reader, client_writer, method, url, version, headers, ws_id
+            )
+    except (ConnectionError, OSError, asyncio.IncompleteReadError, ValueError):
+        pass
+    finally:
+        try:
+            client_writer.close()
+        except OSError:
+            pass
+
+
+async def main():
+    server = await asyncio.start_server(handle_client, LISTEN_HOST, LISTEN_PORT)
+    # Clean shutdown on SIGTERM/SIGINT
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, server.close)
+    async with server:
+        try:
+            await server.serve_forever()
+        except asyncio.CancelledError:
+            pass
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,0 +1,102 @@
+#!/bin/bash
+# hypr-devns-daemon — user-level namespace lifecycle manager
+# Listens to Hyprland IPC for workspace events, lazily creates namespaces.
+
+# No -e: the socat reconnect loop uses non-fatal exits to detect socket loss
+set -uo pipefail
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+STATE_DIR="${XDG_RUNTIME_DIR}/hypr-devns"
+mkdir -p "$STATE_DIR"
+
+should_namespace() {
+    local id="$1"
+    # Skip special workspaces (negative IDs)
+    if [ "$id" -le 0 ] 2>/dev/null; then
+        return 1
+    fi
+    if [ "$DEVNS_WORKSPACES" = "all" ]; then
+        return 0
+    fi
+    echo ",$DEVNS_WORKSPACES," | grep -q ",${id},"
+}
+
+ensure_namespace() {
+    local id="$1"
+    if ! should_namespace "$id"; then
+        return 0
+    fi
+    if [ -f "${STATE_DIR}/${id}" ]; then
+        return 0
+    fi
+    if sudo /usr/bin/hypr-devns-helper create "$id"; then
+        touch "${STATE_DIR}/${id}"
+    else
+        echo "warning: failed to create namespace for workspace $id" >&2
+    fi
+}
+
+PROXY_PID=""
+
+start_proxy() {
+    python3 /usr/share/hypr-workflow/hypr-devns-proxy &
+    PROXY_PID=$!
+}
+
+update_active_ws() {
+    echo "$1" > "${STATE_DIR}/active-ws"
+}
+
+cleanup() {
+    if [ -n "$PROXY_PID" ]; then
+        kill "$PROXY_PID" 2>/dev/null || true
+        wait "$PROXY_PID" 2>/dev/null || true
+    fi
+    sudo /usr/bin/hypr-devns-helper destroy-all 2>/dev/null || true
+    rm -rf "$STATE_DIR"
+}
+
+trap cleanup EXIT TERM INT
+
+# Create namespace for current workspace on startup
+current_ws="$(hyprctl activeworkspace -j | jq -r '.id')" || true
+if [ -n "$current_ws" ]; then
+    update_active_ws "$current_ws"
+    ensure_namespace "$current_ws"
+fi
+
+start_proxy
+
+# Determine Hyprland IPC socket path
+his="$HYPRLAND_INSTANCE_SIGNATURE"
+socket2="${XDG_RUNTIME_DIR}/hypr/${his}/.socket2.sock"
+
+if [ ! -S "$socket2" ]; then
+    echo "error: hyprland socket2 not found at $socket2" >&2
+    exit 1
+fi
+
+# Listen for workspace events (reconnect if socat drops)
+while true; do
+    socat -u "UNIX-CONNECT:${socket2}" STDOUT 2>/dev/null | while IFS= read -r line; do
+        case "$line" in
+            workspace\>\>*)
+                ws_id="${line#*>>}"
+                if [[ "$ws_id" =~ ^[0-9]+$ ]]; then
+                    update_active_ws "$ws_id"
+                    ensure_namespace "$ws_id"
+                fi
+                ;;
+            createworkspace\>\>*)
+                ws_id="${line#*>>}"
+                if [[ "$ws_id" =~ ^[0-9]+$ ]]; then
+                    ensure_namespace "$ws_id"
+                fi
+                ;;
+        esac
+    done
+    # Socket gone means Hyprland exited — stop the daemon
+    [ -S "$socket2" ] || break
+    sleep 1
+done

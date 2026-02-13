@@ -32,9 +32,6 @@
   -gtk-icon-transform: scale(0.9);
 }
 
-.item-text {
-}
-
 .item-number {
   opacity: 0.5;
   padding: 2px 8px;
