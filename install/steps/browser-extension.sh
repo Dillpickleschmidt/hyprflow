@@ -1,5 +1,23 @@
 # Step: Browser extension
 
+# Chromium-based browsers: label|command|flags_file
+CHROMIUM_BROWSERS=(
+    "Chromium|chromium|$DEVNS_CHROMIUM_FLAGS"
+    "Helium|helium-browser|$DEVNS_HELIUM_FLAGS"
+    "Chrome|google-chrome-stable|$DEVNS_CHROME_FLAGS"
+    "Brave|brave|$DEVNS_BRAVE_FLAGS"
+    "Vivaldi|vivaldi-stable|$DEVNS_VIVALDI_FLAGS"
+    "Edge|microsoft-edge-stable|$DEVNS_EDGE_FLAGS"
+)
+
+# Firefox-based browsers: label|command|policies_path
+FIREFOX_BROWSERS=(
+    "Zen|zen-browser|$DEVNS_ZEN_POLICIES"
+    "Firefox|firefox|$DEVNS_FIREFOX_POLICIES"
+    "LibreWolf|librewolf|$DEVNS_LIBREWOLF_POLICIES"
+    "Floorp|floorp|$DEVNS_FLOORP_POLICIES"
+)
+
 add_host_app() {
     local cmd="$1"
     local config="$HOME/.config/hypr-devns.conf"
@@ -33,17 +51,60 @@ add_load_extension() {
     fi
 }
 
+add_firefox_extension() {
+    local label="$1"
+    local cmd="$2"
+    shift 2
+    # Remaining args are policies dir candidates
+    local policies_dir
+    if policies_dir=$(resolve_path "${label} browser policies directory" "$@"); then
+        local policies_file="${policies_dir}/policies.json"
+        if [[ -f "$policies_file" ]] && grep -q 'hypr-devns@localhost' "$policies_file" 2>/dev/null; then
+            info "${label}: extension already configured"
+        else
+            local ext_policy="{\"ExtensionSettings\":{\"hypr-devns@localhost\":{\"installation_mode\":\"normal_installed\",\"install_url\":\"file:///${DEVNS_FIREFOX_EXTENSION_DIR}/\"}}}"
+            if [[ -f "$policies_file" ]]; then
+                local merged
+                merged=$(jq --argjson ext "$ext_policy" '.policies = (.policies // {}) * $ext' "$policies_file")
+                echo "$merged" | sudo tee "$policies_file" > /dev/null
+            else
+                echo "{\"policies\": ${ext_policy}}" | sudo tee "$policies_file" > /dev/null
+            fi
+            success "${label}: added extension policy"
+        fi
+        add_host_app "$cmd"
+        manifest_add_browser "$label"
+        manifest_set_path "${label,,}_policies" "$policies_file"
+    fi
+}
+
 step_browser_extension() {
     info "Configuring browser extensions..."
 
     # Auto-detect installed browsers
-    local -a detected=()
     local -a detected_labels=()
-    command -v chromium &>/dev/null && detected+=("chromium") && detected_labels+=("Chromium")
-    command -v helium-browser &>/dev/null && detected+=("helium") && detected_labels+=("Helium")
-    command -v zen-browser &>/dev/null && detected+=("zen") && detected_labels+=("Zen")
+    local -a detected_entries=()
+    local -a detected_types=()
 
-    if [[ ${#detected[@]} -eq 0 ]]; then
+    for entry in "${CHROMIUM_BROWSERS[@]}"; do
+        IFS='|' read -r label cmd _ <<< "$entry"
+        if command -v "$cmd" &>/dev/null; then
+            detected_labels+=("$label")
+            detected_entries+=("$entry")
+            detected_types+=("chromium")
+        fi
+    done
+
+    for entry in "${FIREFOX_BROWSERS[@]}"; do
+        IFS='|' read -r label cmd _ <<< "$entry"
+        if command -v "$cmd" &>/dev/null; then
+            detected_labels+=("$label")
+            detected_entries+=("$entry")
+            detected_types+=("firefox")
+        fi
+    done
+
+    if [[ ${#detected_labels[@]} -eq 0 ]]; then
         warn "No supported browsers detected, skipping"
         return
     fi
@@ -64,44 +125,20 @@ step_browser_extension() {
 
     manifest_add_feature "browser_extension"
 
-    # Chromium
-    if echo "$selected_browsers" | grep -qF "Chromium"; then
-        add_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium"
-        add_host_app "chromium"
-        manifest_add_browser "Chromium"
-    fi
+    for i in "${!detected_labels[@]}"; do
+        local label="${detected_labels[$i]}"
+        echo "$selected_browsers" | grep -qF "$label" || continue
 
-    # Helium
-    if echo "$selected_browsers" | grep -qF "Helium"; then
-        add_load_extension "$DEVNS_HELIUM_FLAGS" "Helium"
-        add_host_app "helium-browser"
-        manifest_add_browser "Helium"
-    fi
+        IFS='|' read -r _ cmd data <<< "${detected_entries[$i]}"
 
-    # Zen
-    if echo "$selected_browsers" | grep -qF "Zen"; then
-        local zen_policies_dir
-        if zen_policies_dir=$(resolve_path "Zen browser policies directory" \
-            "$(dirname "$DEVNS_ZEN_POLICIES")" \
-            "/usr/lib/zen-browser/distribution"); then
-
-            local zen_policies="${zen_policies_dir}/policies.json"
-            if [[ -f "$zen_policies" ]] && grep -q 'hypr-devns@localhost' "$zen_policies" 2>/dev/null; then
-                info "Zen: extension already configured"
-            else
-                local ext_policy="{\"ExtensionSettings\":{\"hypr-devns@localhost\":{\"installation_mode\":\"normal_installed\",\"install_url\":\"file:///${DEVNS_FIREFOX_EXTENSION_DIR}/\"}}}"
-                if [[ -f "$zen_policies" ]]; then
-                    local merged
-                    merged=$(jq --argjson ext "$ext_policy" '.policies = (.policies // {}) * $ext' "$zen_policies")
-                    echo "$merged" | sudo tee "$zen_policies" > /dev/null
-                else
-                    echo "{\"policies\": ${ext_policy}}" | sudo tee "$zen_policies" > /dev/null
-                fi
-                success "Zen: added extension policy"
-            fi
-            add_host_app "zen-browser"
-            manifest_add_browser "Zen"
-            manifest_set_path "zen_policies" "$zen_policies"
+        if [[ "${detected_types[$i]}" == "chromium" ]]; then
+            add_load_extension "$data" "$label"
+            add_host_app "$cmd"
+            manifest_add_browser "$label"
+        else
+            # Firefox-based: try constant path + standard /usr/lib location
+            add_firefox_extension "$label" "$cmd" \
+                "$(dirname "$data")" "/usr/lib/${cmd}/distribution"
         fi
-    fi
+    done
 }

@@ -81,19 +81,33 @@ if m_has_feature "browser_extension"; then
         success "${label}: removed extension"
     }
 
+    remove_firefox_extension() {
+        local label="$1"
+        local cmd="$2"
+        local policies_path
+        policies_path=$(m_get ".paths.${label,,}_policies")
+        if [[ -n "$policies_path" ]] && [[ -f "$policies_path" ]] && grep -q 'hypr-devns@localhost' "$policies_path" 2>/dev/null; then
+            jq 'del(.policies.ExtensionSettings["hypr-devns@localhost"])' "$policies_path" | sudo tee "${policies_path}.tmp" > /dev/null
+            sudo mv "${policies_path}.tmp" "$policies_path"
+            success "${label}: removed extension policy"
+        fi
+        remove_host_app "$cmd"
+    }
+
     while IFS= read -r browser; do
         case "$browser" in
+            # Chromium-based
             Chromium) remove_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium"; remove_host_app "chromium" ;;
             Helium)   remove_load_extension "$DEVNS_HELIUM_FLAGS" "Helium"; remove_host_app "helium-browser" ;;
-            Zen)
-                zen_policies=$(m_get '.paths.zen_policies')
-                if [[ -n "$zen_policies" ]] && [[ -f "$zen_policies" ]] && grep -q 'hypr-devns@localhost' "$zen_policies" 2>/dev/null; then
-                    jq 'del(.policies.ExtensionSettings["hypr-devns@localhost"])' "$zen_policies" | sudo tee "${zen_policies}.tmp" > /dev/null
-                    sudo mv "${zen_policies}.tmp" "$zen_policies"
-                    success "Zen: removed extension policy"
-                fi
-                remove_host_app "zen-browser"
-                ;;
+            Chrome)   remove_load_extension "$DEVNS_CHROME_FLAGS" "Chrome"; remove_host_app "google-chrome-stable" ;;
+            Brave)    remove_load_extension "$DEVNS_BRAVE_FLAGS" "Brave"; remove_host_app "brave" ;;
+            Vivaldi)  remove_load_extension "$DEVNS_VIVALDI_FLAGS" "Vivaldi"; remove_host_app "vivaldi-stable" ;;
+            Edge)     remove_load_extension "$DEVNS_EDGE_FLAGS" "Edge"; remove_host_app "microsoft-edge-stable" ;;
+            # Firefox-based
+            Zen)      remove_firefox_extension "Zen" "zen-browser" ;;
+            Firefox)  remove_firefox_extension "Firefox" "firefox" ;;
+            LibreWolf) remove_firefox_extension "LibreWolf" "librewolf" ;;
+            Floorp)   remove_firefox_extension "Floorp" "floorp" ;;
         esac
     done < <(echo "$MANIFEST" | jq -r '.browsers[]? // empty')
 fi
