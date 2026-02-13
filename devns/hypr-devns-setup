@@ -128,5 +128,26 @@ else
     info "docker: registered devns runtime"
 fi
 
+# 8. Group overlay — autostart + keybindings
+if grep -q 'hypr-group-overlay' "$DEVNS_AUTOSTART" 2>/dev/null; then
+    info "group-overlay: autostart already configured"
+else
+    echo 'exec-once = hypr-group-overlay' >> "$DEVNS_AUTOSTART"
+    info "group-overlay: added autostart"
+fi
+
+if grep -q 'hypr-group-overlay' "$DEVNS_BINDINGS" 2>/dev/null; then
+    info "group-overlay: bindings already configured"
+else
+    cat >> "$DEVNS_BINDINGS" << 'OVERLAY'
+
+# Group tab overlay — pure visual side effect
+layerrule = no_anim on, match:namespace hypr-group-overlay
+bindn = SUPER, Alt_L, exec, kill -USR2 $(cat $XDG_RUNTIME_DIR/hypr-group-overlay.pid) 2>/dev/null || hypr-group-overlay
+bindn = ALT, Super_L, exec, kill -USR2 $(cat $XDG_RUNTIME_DIR/hypr-group-overlay.pid) 2>/dev/null || hypr-group-overlay
+OVERLAY
+    info "group-overlay: added keybindings"
+fi
+
 echo
 echo "Done. Restart Hyprland or reboot to activate."

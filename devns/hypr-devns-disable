@@ -71,7 +71,20 @@ if [ -f "$DEVNS_DOCKER_DAEMON_JSON" ] && grep -q 'hypr-devns-runc' "$DEVNS_DOCKE
     info "docker: removed devns runtime"
 fi
 
-# 8. Kill daemon and clean up namespaces
+# 8. Group overlay
+if grep -q 'hypr-group-overlay' "$DEVNS_AUTOSTART" 2>/dev/null; then
+    sed -i '/hypr-group-overlay/d' "$DEVNS_AUTOSTART"
+    info "group-overlay: removed autostart"
+fi
+
+if grep -q 'hypr-group-overlay' "$DEVNS_BINDINGS" 2>/dev/null; then
+    sed -i '/hypr-group-overlay/d' "$DEVNS_BINDINGS"
+    info "group-overlay: removed bindings"
+fi
+
+pkill -f hypr-group-overlay 2>/dev/null || true
+
+# 9. Kill devns daemon and clean up namespaces
 pkill -f hypr-devns-daemon 2>/dev/null || true
 sudo /usr/bin/hypr-devns-helper destroy-all 2>/dev/null || true
 
