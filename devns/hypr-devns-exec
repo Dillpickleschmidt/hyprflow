@@ -4,7 +4,7 @@
 # Creates the namespace on-demand if the daemon hasn't set it up yet.
 # Falls through to direct exec if workspace ID is invalid.
 
-. /usr/share/hypr-workflow/lib/devns-common.sh
+. /usr/share/hyprflow/lib/devns-common.sh
 
 if [ $# -eq 0 ]; then
     echo "usage: hypr-devns-exec <command...>" >&2

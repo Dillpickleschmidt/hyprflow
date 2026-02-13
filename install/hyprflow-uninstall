@@ -1,16 +1,16 @@
 #!/bin/bash
-# hypr-workflow-uninstall — remove hypr-workflow configuration
+# hyprflow-uninstall — remove hyprflow configuration
 # Reads the install manifest to know exactly what to revert.
 
 set -euo pipefail
 
-. /usr/share/hypr-workflow/lib/devns-common.sh
+. /usr/share/hyprflow/lib/devns-common.sh
 
 info()    { printf "  %s\n" "$1"; }
 success() { printf "  \033[32m%s\033[0m\n" "$1"; }
 warn()    { printf "  \033[33m%s\033[0m\n" "$1"; }
 
-MANIFEST_FILE="$HOME/.local/share/hypr-workflow/install-manifest.json"
+MANIFEST_FILE="$HOME/.local/share/hyprflow/install-manifest.json"
 
 if [[ ! -f "$MANIFEST_FILE" ]]; then
     echo "No installation manifest found. Nothing to uninstall."
@@ -35,7 +35,7 @@ autostart_file=$(m_get '.autostart_file')
 bindings_file=$(m_get '.bindings_file')
 mode=$(m_get '.mode')
 
-echo "hypr-workflow: removing configuration (mode: $mode)"
+echo "hyprflow: removing configuration (mode: $mode)"
 echo
 
 # ─── Revert: namespace isolation ─────────────────────────────
@@ -171,8 +171,8 @@ fi
 # ─── Revert: keybinds ────────────────────────────────────────
 
 if m_has_feature "keybinds"; then
-    if [[ -n "$bindings_file" ]] && grep -q '# BEGIN hypr-workflow keybinds' "$bindings_file" 2>/dev/null; then
-        sed -i '/^# BEGIN hypr-workflow keybinds$/,/^# END hypr-workflow keybinds$/d' "$bindings_file"
+    if [[ -n "$bindings_file" ]] && grep -q '# BEGIN hyprflow keybinds' "$bindings_file" 2>/dev/null; then
+        sed -i '/^# BEGIN hyprflow keybinds$/,/^# END hyprflow keybinds$/d' "$bindings_file"
         success "Keybindings: removed workspace group bindings"
     fi
 fi

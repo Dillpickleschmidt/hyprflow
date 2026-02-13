@@ -10,7 +10,7 @@ step_waybar() {
         return
     fi
 
-    local backup="${waybar_config}.hypr-workflow-backup"
+    local backup="${waybar_config}.hyprflow-backup"
 
     manifest_add_feature "waybar"
     manifest_set_path "waybar_config" "$waybar_config"

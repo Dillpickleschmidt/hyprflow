@@ -7,7 +7,7 @@
 # On "delete": cleans up cached workspace mapping
 # All commands: exec real runc with (possibly modified) args
 
-. /usr/share/hypr-workflow/lib/devns-common.sh
+. /usr/share/hyprflow/lib/devns-common.sh
 
 REAL_RUNC=/usr/bin/runc
 CACHE_DIR=/run/hypr-devns/containers

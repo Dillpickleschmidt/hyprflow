@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# hypr-workflow-install — interactive installer for hypr-workflow
-# Run after installing the hypr-workflow package. Idempotent.
+# hyprflow-install — interactive installer for hyprflow
+# Run after installing the hyprflow package. Idempotent.
 
 set -euo pipefail
 
-INSTALL_DIR="/usr/share/hypr-workflow/install"
+INSTALL_DIR="/usr/share/hyprflow/install"
 
-. /usr/share/hypr-workflow/lib/devns-common.sh
+. /usr/share/hyprflow/lib/devns-common.sh
 . "$INSTALL_DIR/lib/utils.sh"
 
 for step_file in "$INSTALL_DIR"/steps/*.sh; do
@@ -118,8 +118,8 @@ show_summary() {
     if [[ "$NEED_SOURCE_INSTRUCTIONS" == true ]]; then
         echo
         warn "Add the following lines to your hyprland.conf:"
-        echo "  source = ~/.config/hypr/hypr-workflow-autostart.conf"
-        echo "  source = ~/.config/hypr/hypr-workflow-bindings.conf"
+        echo "  source = ~/.config/hypr/hyprflow-autostart.conf"
+        echo "  source = ~/.config/hypr/hyprflow-bindings.conf"
     fi
 }
 
@@ -133,7 +133,7 @@ main() {
     fi
 
     gum style --border double --padding "1 2" --border-foreground 212 \
-        "hypr-workflow installer"
+        "hyprflow installer"
     echo
 
     prompt_environment

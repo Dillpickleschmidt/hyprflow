@@ -1,4 +1,4 @@
-# utils.sh — shared helpers for hypr-workflow-install
+# utils.sh — shared helpers for hyprflow-install
 
 # ─── Logging ─────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ has_feature() {
 
 # ─── Manifest ───────────────────────────────────────────────
 
-MANIFEST_FILE="$HOME/.local/share/hypr-workflow/install-manifest.json"
+MANIFEST_FILE="$HOME/.local/share/hyprflow/install-manifest.json"
 MANIFEST='{}'
 
 manifest_set() {
@@ -78,13 +78,13 @@ resolve_shared_paths() {
         BINDINGS_FILE=$(resolve_path "Hyprland bindings config" \
             "$DEVNS_BINDINGS") || exit 1
     else
-        mkdir -p "$(dirname "$DEVNS_HW_AUTOSTART")"
-        touch "$DEVNS_HW_AUTOSTART"
-        touch "$DEVNS_HW_BINDINGS"
-        AUTOSTART_FILE="$DEVNS_HW_AUTOSTART"
-        BINDINGS_FILE="$DEVNS_HW_BINDINGS"
+        mkdir -p "$(dirname "$DEVNS_HF_AUTOSTART")"
+        touch "$DEVNS_HF_AUTOSTART"
+        touch "$DEVNS_HF_BINDINGS"
+        AUTOSTART_FILE="$DEVNS_HF_AUTOSTART"
+        BINDINGS_FILE="$DEVNS_HF_BINDINGS"
         NEED_SOURCE_INSTRUCTIONS=true
-        manifest_add_file "$DEVNS_HW_AUTOSTART"
-        manifest_add_file "$DEVNS_HW_BINDINGS"
+        manifest_add_file "$DEVNS_HF_AUTOSTART"
+        manifest_add_file "$DEVNS_HF_BINDINGS"
     fi
 }

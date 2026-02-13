@@ -12,7 +12,7 @@ step_docker() {
         info "Docker: runtime already configured"
     else
         # Back up original if it exists and we haven't already
-        local backup="${DEVNS_DOCKER_DAEMON_JSON}.hypr-workflow-backup"
+        local backup="${DEVNS_DOCKER_DAEMON_JSON}.hyprflow-backup"
         if [[ -f "$DEVNS_DOCKER_DAEMON_JSON" ]] && [[ ! -f "$backup" ]]; then
             sudo cp "$DEVNS_DOCKER_DAEMON_JSON" "$backup"
             manifest_set_path "docker_backup" "$backup"

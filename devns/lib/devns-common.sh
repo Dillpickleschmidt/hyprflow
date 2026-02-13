@@ -1,5 +1,5 @@
 # devns-common.sh — shared constants and utilities for hypr-devns scripts
-# Source this file: . /usr/share/hypr-workflow/lib/devns-common.sh
+# Source this file: . /usr/share/hyprflow/lib/devns-common.sh
 
 # Load config (system then user override)
 [ -f /etc/hypr-devns.conf ] && . /etc/hypr-devns.conf
@@ -54,8 +54,8 @@ DEVNS_BINDINGS="$HOME/.config/hypr/bindings.conf"
 DEVNS_ELEPHANT="$HOME/.config/elephant/desktopapplications.toml"
 DEVNS_GHOSTTY_SYSTEM="/usr/share/applications/com.mitchellh.ghostty.desktop"
 DEVNS_GHOSTTY_USER="$HOME/.local/share/applications/com.mitchellh.ghostty.desktop"
-DEVNS_CHROMIUM_EXTENSION_DIR="/usr/share/hypr-workflow/extension/chromium"
-DEVNS_FIREFOX_EXTENSION_DIR="/usr/share/hypr-workflow/extension/firefox"
+DEVNS_CHROMIUM_EXTENSION_DIR="/usr/share/hyprflow/extension/chromium"
+DEVNS_FIREFOX_EXTENSION_DIR="/usr/share/hyprflow/extension/firefox"
 DEVNS_CHROMIUM_FLAGS="$HOME/.config/chromium-flags.conf"
 DEVNS_HELIUM_FLAGS="$HOME/.config/helium-browser-flags.conf"
 DEVNS_CHROME_FLAGS="$HOME/.config/chrome-flags.conf"
@@ -69,5 +69,5 @@ DEVNS_FLOORP_POLICIES="/usr/lib/floorp/distribution/policies.json"
 DEVNS_DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
 
 # Hyprland-mode paths (vanilla Hyprland without Omarchy)
-DEVNS_HW_AUTOSTART="$HOME/.config/hypr/hypr-workflow-autostart.conf"
-DEVNS_HW_BINDINGS="$HOME/.config/hypr/hypr-workflow-bindings.conf"
+DEVNS_HF_AUTOSTART="$HOME/.config/hypr/hyprflow-autostart.conf"
+DEVNS_HF_BINDINGS="$HOME/.config/hypr/hyprflow-bindings.conf"

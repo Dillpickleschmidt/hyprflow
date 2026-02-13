@@ -1,4 +1,4 @@
-# hypr-workflow
+# hyprflow
 
 Hyprland workflow tools: group overlay + per-workspace network namespaces.
 
@@ -12,7 +12,7 @@ Hyprland workflow tools: group overlay + per-workspace network namespaces.
 
 - IPv4 only — `localhost` is forced to `127.0.0.1` inside namespaces. Apps that rely on `::1` won't work.
 - HTTPS localhost bypasses the proxy and extension entirely, so cookies are not workspace-isolated. Use HTTP for local dev.
-- The Docker runtime (`hypr-devns-runc`) is registered as the **default OCI runtime**, so all containers are affected. Revert with `hypr-workflow-uninstall`.
+- The Docker runtime (`hypr-devns-runc`) is registered as the **default OCI runtime**, so all containers are affected. Revert with `hyprflow-uninstall`.
 - Port publishing is stripped from `docker compose up`/`create`/`run` since it's redundant inside namespaces and would conflict globally. If you need host-published ports (e.g. for access from another machine), run `docker run -p` directly on the host outside a namespace.
 - See [Docker limitations](#docker-limitations) for additional edge cases.
 
@@ -37,7 +37,7 @@ This installs all scripts to `/usr/bin/` and config to `/etc/`.
 After installing, run the interactive installer to integrate with your desktop:
 
 ```bash
-hypr-workflow-install
+hyprflow-install
 ```
 
 This configures:
@@ -51,7 +51,7 @@ This configures:
 
 Reboot after setup, or restart Hyprland, Docker, and your browsers individually.
 
-To undo everything: `hypr-workflow-uninstall`
+To undo everything: `hyprflow-uninstall`
 
 ## Configuration
 

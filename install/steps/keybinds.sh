@@ -10,7 +10,7 @@ step_keybinds() {
 
     cat >> "$BINDINGS_FILE" << 'WSGROUPS'
 
-# BEGIN hypr-workflow keybinds
+# BEGIN hyprflow keybinds
 # Workspace groups — groups of 10 workspaces share a network namespace
 # SUPER+N switches within current group, SUPER+ALT+N switches group
 
@@ -130,7 +130,7 @@ bindd = SUPER CTRL, TAB, Next window in group, changegroupactive, f
 bindd = SUPER CTRL SHIFT, TAB, Previous window in group, changegroupactive, b
 bindd = SUPER CTRL, mouse_down, Next window in group, changegroupactive, f
 bindd = SUPER CTRL, mouse_up, Previous window in group, changegroupactive, b
-# END hypr-workflow keybinds
+# END hyprflow keybinds
 WSGROUPS
 
     manifest_add_feature "keybinds"

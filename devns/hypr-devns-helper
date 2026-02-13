@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-. /usr/share/hypr-workflow/lib/devns-common.sh
+. /usr/share/hyprflow/lib/devns-common.sh
 
 ns_create() {
     local id="$1"

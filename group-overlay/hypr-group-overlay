@@ -112,7 +112,7 @@ def load_css():
     walker_theme = os.path.join(home, ".config/omarchy/current/theme/walker.css")
 
     css_paths = [
-        "/usr/share/hypr-workflow/style.css",
+        "/usr/share/hyprflow/style.css",
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.css"),
     ]
 

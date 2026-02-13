@@ -5,7 +5,7 @@
 # No -e: the socat reconnect loop uses non-fatal exits to detect socket loss
 set -uo pipefail
 
-. /usr/share/hypr-workflow/lib/devns-common.sh
+. /usr/share/hyprflow/lib/devns-common.sh
 
 STATE_DIR="${XDG_RUNTIME_DIR}/hypr-devns"
 mkdir -p "$STATE_DIR"
@@ -45,7 +45,7 @@ ensure_namespace() {
 PROXY_PID=""
 
 start_proxy() {
-    python3 /usr/share/hypr-workflow/hypr-devns-proxy &
+    python3 /usr/share/hyprflow/hypr-devns-proxy &
     PROXY_PID=$!
 }
 

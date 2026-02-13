@@ -6,7 +6,7 @@
 # 2. Strips port publishing for up/create/run — ports are redundant in namespaces
 #    and conflict since Docker's port allocator is global.
 
-REAL_DOCKER="$(type -ap docker | grep -v /usr/share/hypr-workflow | head -1)"
+REAL_DOCKER="$(type -ap docker | grep -v /usr/share/hyprflow | head -1)"
 
 if [ -z "$REAL_DOCKER" ]; then
     echo "error: docker not found in PATH" >&2
