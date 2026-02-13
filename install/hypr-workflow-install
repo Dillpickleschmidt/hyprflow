@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# hypr-workflow-install — interactive installer for hypr-workflow
+# Run after installing the hypr-workflow package. Idempotent.
+
+set -euo pipefail
+
+INSTALL_DIR="/usr/share/hypr-workflow/install"
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+. "$INSTALL_DIR/lib/utils.sh"
+
+for step_file in "$INSTALL_DIR"/steps/*.sh; do
+    . "$step_file"
+done
+
+# ─── Interactive prompts ─────────────────────────────────────
+
+abort() {
+    echo
+    warn "Installation cancelled."
+    exit 1
+}
+
+prompt_environment() {
+    local choice
+    choice=$(gum choose --header "Select your environment:" "Omarchy" "Only Hyprland") || abort
+    if [[ "$choice" == "Omarchy" ]]; then
+        MODE="omarchy"
+    else
+        MODE="hyprland"
+    fi
+}
+
+prompt_core_features() {
+    local -a options=()
+    local -a preselected=()
+
+    options+=("Network namespace isolation (workspace groups)")
+    preselected+=("Network namespace isolation (workspace groups)")
+
+    if [[ "$MODE" == "omarchy" ]]; then
+        options+=("Waybar modifications")
+        preselected+=("Waybar modifications")
+        options+=("Group preview widget")
+        preselected+=("Group preview widget")
+        options+=("Workspace numbered notifications")
+        preselected+=("Workspace numbered notifications")
+    fi
+
+    options+=("Keybinds for workspace groups")
+    preselected+=("Keybinds for workspace groups")
+
+    options+=("Workspace animations")
+    # NOT pre-selected
+
+    local csv
+    csv=$(IFS=,; echo "${preselected[*]}")
+
+    CORE_FEATURES=$(gum choose --no-limit \
+        --header "Select features to install:" \
+        --selected "$csv" \
+        "${options[@]}") || abort
+}
+
+prompt_ns_addons() {
+    NS_FEATURES=""
+    if ! has_feature "$CORE_FEATURES" "Network namespace isolation"; then
+        return
+    fi
+
+    NS_FEATURES=$(gum choose --no-limit \
+        --header "Namespace isolation add-ons:" \
+        --selected "Browser extension,Ghostty terminal support,Docker daemon support" \
+        "Browser extension" \
+        "Ghostty terminal support" \
+        "Docker daemon support") || abort
+}
+
+# ─── Execution ───────────────────────────────────────────────
+
+FAILED_STEPS=()
+
+run_step() {
+    local feature_list="$1"
+    local feature_name="$2"
+    local step_func="$3"
+    if has_feature "$feature_list" "$feature_name"; then
+        if ! "$step_func"; then
+            warn "FAILED: $feature_name"
+            FAILED_STEPS+=("$feature_name")
+        fi
+    fi
+}
+
+run_selected_steps() {
+    run_step "$CORE_FEATURES" "Network namespace isolation"      step_namespace_isolation
+    run_step "$NS_FEATURES"   "Browser extension"                step_browser_extension
+    run_step "$NS_FEATURES"   "Ghostty terminal support"         step_ghostty
+    run_step "$NS_FEATURES"   "Docker daemon support"            step_docker
+    run_step "$CORE_FEATURES" "Waybar modifications"             step_waybar
+    run_step "$CORE_FEATURES" "Group preview widget"             step_group_overlay
+    run_step "$CORE_FEATURES" "Workspace numbered notifications" step_notifications
+    run_step "$CORE_FEATURES" "Keybinds for workspace groups"    step_keybinds
+    run_step "$CORE_FEATURES" "Workspace animations"             step_animations
+}
+
+show_summary() {
+    echo
+    if [[ ${#FAILED_STEPS[@]} -gt 0 ]]; then
+        warn "Installation finished with errors:"
+        for step in "${FAILED_STEPS[@]}"; do
+            warn "  - $step"
+        done
+    else
+        success "Installation complete. Restart Hyprland or reboot to activate."
+    fi
+
+    if [[ "$NEED_SOURCE_INSTRUCTIONS" == true ]]; then
+        echo
+        warn "Add the following lines to your hyprland.conf:"
+        echo "  source = ~/.config/hypr/hypr-workflow-autostart.conf"
+        echo "  source = ~/.config/hypr/hypr-workflow-bindings.conf"
+    fi
+}
+
+# ─── Main ────────────────────────────────────────────────────
+
+main() {
+    if ! command -v gum &>/dev/null; then
+        echo "Error: gum is required but not installed."
+        echo "Install with: pacman -S gum"
+        exit 1
+    fi
+
+    gum style --border double --padding "1 2" --border-foreground 212 \
+        "hypr-workflow installer"
+    echo
+
+    prompt_environment
+    echo
+    resolve_shared_paths
+    manifest_set "mode" "$MODE"
+    manifest_set "autostart_file" "$AUTOSTART_FILE"
+    manifest_set "bindings_file" "$BINDINGS_FILE"
+    prompt_core_features
+    echo
+    prompt_ns_addons
+    echo
+
+    if [[ -z "$CORE_FEATURES" && -z "$NS_FEATURES" ]]; then
+        warn "No features selected — nothing to install."
+        exit 0
+    fi
+
+    run_selected_steps
+    manifest_write
+    show_summary
+}
+
+CORE_FEATURES=""
+NS_FEATURES=""
+main "$@"

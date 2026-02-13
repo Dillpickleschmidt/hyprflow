@@ -54,7 +54,12 @@ DEVNS_ELEPHANT="$HOME/.config/elephant/desktopapplications.toml"
 DEVNS_GHOSTTY_SYSTEM="/usr/share/applications/com.mitchellh.ghostty.desktop"
 DEVNS_GHOSTTY_USER="$HOME/.local/share/applications/com.mitchellh.ghostty.desktop"
 DEVNS_CHROMIUM_EXTENSION_DIR="/usr/share/hypr-workflow/extension/chromium"
+DEVNS_FIREFOX_EXTENSION_DIR="/usr/share/hypr-workflow/extension/firefox"
 DEVNS_CHROMIUM_FLAGS="$HOME/.config/chromium-flags.conf"
 DEVNS_HELIUM_FLAGS="$HOME/.config/helium-browser-flags.conf"
 DEVNS_ZEN_POLICIES="/opt/zen-browser-bin/distribution/policies.json"
 DEVNS_DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
+
+# Hyprland-mode paths (vanilla Hyprland without Omarchy)
+DEVNS_HW_AUTOSTART="$HOME/.config/hypr/hypr-workflow-autostart.conf"
+DEVNS_HW_BINDINGS="$HOME/.config/hypr/hypr-workflow-bindings.conf"

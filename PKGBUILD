@@ -4,7 +4,12 @@ pkgrel=1
 pkgdesc="Hyprland workflow tools: group overlay + per-workspace network namespaces"
 arch=('any')
 license=('MIT')
-depends=('python-gobject' 'gtk4-layer-shell' 'python' 'python-dbus' 'hyprland' 'jq' 'socat' 'iproute2' 'iptables')
+depends=('hyprland' 'jq' 'socat' 'iproute2' 'iptables' 'python' 'gum')
+optdepends=(
+    'python-gobject: group preview widget'
+    'gtk4-layer-shell: group preview widget'
+    'python-dbus: workspace numbered notifications'
+)
 backup=('etc/hypr-devns.conf')
 
 package() {
@@ -17,8 +22,12 @@ package() {
     install -Dm755 "$startdir/devns/hypr-devns-exec" "$pkgdir/usr/bin/hypr-devns-exec"
     install -Dm644 "$startdir/devns/hypr-devns.conf" "$pkgdir/etc/hypr-devns.conf"
     install -Dm440 "$startdir/devns/50-hypr-devns.sudoers" "$pkgdir/etc/sudoers.d/50-hypr-devns"
-    install -Dm755 "$startdir/devns/hypr-devns-setup" "$pkgdir/usr/bin/hypr-devns-setup"
-    install -Dm755 "$startdir/devns/hypr-devns-disable" "$pkgdir/usr/bin/hypr-devns-disable"
+    install -Dm755 "$startdir/install/hypr-workflow-install" "$pkgdir/usr/bin/hypr-workflow-install"
+    install -Dm644 "$startdir/install/lib/utils.sh" "$pkgdir/usr/share/hypr-workflow/install/lib/utils.sh"
+    for step in "$startdir"/install/steps/*.sh; do
+        install -Dm644 "$step" "$pkgdir/usr/share/hypr-workflow/install/steps/$(basename "$step")"
+    done
+    install -Dm755 "$startdir/install/hypr-workflow-uninstall" "$pkgdir/usr/bin/hypr-workflow-uninstall"
     install -Dm755 "$startdir/devns/hypr-devns-runc" "$pkgdir/usr/bin/hypr-devns-runc"
     install -Dm755 "$startdir/devns/hypr-workspace-group" "$pkgdir/usr/bin/hypr-workspace-group"
 

@@ -1,0 +1,183 @@
+#!/bin/bash
+# hypr-workflow-uninstall — remove hypr-workflow configuration
+# Reads the install manifest to know exactly what to revert.
+
+set -euo pipefail
+
+. /usr/share/hypr-workflow/lib/devns-common.sh
+
+info()    { printf "  %s\n" "$1"; }
+success() { printf "  \033[32m%s\033[0m\n" "$1"; }
+warn()    { printf "  \033[33m%s\033[0m\n" "$1"; }
+
+MANIFEST_FILE="$HOME/.local/share/hypr-workflow/install-manifest.json"
+
+if [[ ! -f "$MANIFEST_FILE" ]]; then
+    echo "No installation manifest found. Nothing to uninstall."
+    exit 0
+fi
+
+MANIFEST=$(cat "$MANIFEST_FILE")
+
+# ─── Manifest helpers ────────────────────────────────────────
+
+m_get() {
+    echo "$MANIFEST" | jq -r "$1 // empty"
+}
+
+m_has_feature() {
+    echo "$MANIFEST" | jq -e --arg f "$1" '(.features // []) | index($f) != null' > /dev/null 2>&1
+}
+
+# ─── Read shared paths from manifest ────────────────────────
+
+autostart_file=$(m_get '.autostart_file')
+bindings_file=$(m_get '.bindings_file')
+mode=$(m_get '.mode')
+
+echo "hypr-workflow: removing configuration (mode: $mode)"
+echo
+
+# ─── Revert: namespace isolation ─────────────────────────────
+
+if m_has_feature "namespace_isolation"; then
+    # Remove daemon from autostart
+    if [[ -n "$autostart_file" ]] && grep -q 'hypr-devns-daemon' "$autostart_file" 2>/dev/null; then
+        sed -i '/hypr-devns-daemon/d' "$autostart_file"
+        success "Autostart: removed hypr-devns-daemon"
+    fi
+
+    # Unwrap terminal
+    if [[ -n "$bindings_file" ]] && grep -q 'hypr-devns-exec' "$bindings_file" 2>/dev/null; then
+        sed -i 's/hypr-devns-exec //g' "$bindings_file"
+        success "Bindings: unwrapped hypr-devns-exec"
+    fi
+
+    # Remove elephant/walker config (Omarchy only)
+    if [[ "$mode" == "omarchy" ]] && grep -q 'hypr-devns-exec' "$DEVNS_ELEPHANT" 2>/dev/null; then
+        sed -i '/hypr-devns-exec/d' "$DEVNS_ELEPHANT"
+        success "Walker: removed launch_prefix"
+    fi
+fi
+
+# ─── Revert: browser extension ───────────────────────────────
+
+if m_has_feature "browser_extension"; then
+    remove_load_extension() {
+        local flags_file="$1"
+        local label="$2"
+        [[ -f "$flags_file" ]] || return 0
+        if ! grep -q "${DEVNS_CHROMIUM_EXTENSION_DIR}" "$flags_file" 2>/dev/null; then return 0; fi
+        sed -i "s|,${DEVNS_CHROMIUM_EXTENSION_DIR}||g; s|${DEVNS_CHROMIUM_EXTENSION_DIR},||g; s|${DEVNS_CHROMIUM_EXTENSION_DIR}||g" "$flags_file"
+        sed -i '/^--load-extension=$/d' "$flags_file"
+        success "${label}: removed extension"
+    }
+
+    while IFS= read -r browser; do
+        case "$browser" in
+            Chromium) remove_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium" ;;
+            Helium)   remove_load_extension "$DEVNS_HELIUM_FLAGS" "Helium" ;;
+            Zen)
+                zen_policies=$(m_get '.paths.zen_policies')
+                if [[ -n "$zen_policies" ]] && [[ -f "$zen_policies" ]] && grep -q 'hypr-devns@localhost' "$zen_policies" 2>/dev/null; then
+                    jq 'del(.policies.ExtensionSettings["hypr-devns@localhost"])' "$zen_policies" | sudo tee "${zen_policies}.tmp" > /dev/null
+                    sudo mv "${zen_policies}.tmp" "$zen_policies"
+                    success "Zen: removed extension policy"
+                fi
+                ;;
+        esac
+    done < <(echo "$MANIFEST" | jq -r '.browsers[]? // empty')
+fi
+
+# ─── Revert: docker ──────────────────────────────────────────
+
+if m_has_feature "docker"; then
+    docker_backup=$(m_get '.paths.docker_backup')
+    if [[ -n "$docker_backup" ]] && [[ -f "$docker_backup" ]]; then
+        sudo mv "$docker_backup" "$DEVNS_DOCKER_DAEMON_JSON"
+        sudo systemctl restart docker 2>/dev/null || true
+        success "Docker: restored from backup"
+    elif [[ -f "$DEVNS_DOCKER_DAEMON_JSON" ]] && grep -q 'hypr-devns-runc' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null; then
+        # No backup means we created the file — remove it
+        sudo rm "$DEVNS_DOCKER_DAEMON_JSON"
+        sudo systemctl restart docker 2>/dev/null || true
+        success "Docker: removed daemon.json"
+    fi
+fi
+
+# ─── Revert: waybar ──────────────────────────────────────────
+
+if m_has_feature "waybar"; then
+    waybar_config=$(m_get '.paths.waybar_config')
+    waybar_backup=$(m_get '.paths.waybar_backup')
+    if [[ -n "$waybar_backup" ]] && [[ -f "$waybar_backup" ]]; then
+        mv "$waybar_backup" "$waybar_config"
+        success "Waybar: restored from backup"
+    else
+        warn "Waybar: backup not found, cannot restore"
+    fi
+fi
+
+# ─── Revert: group overlay ───────────────────────────────────
+
+if m_has_feature "group_overlay"; then
+    config_file="$HOME/.config/hypr-devns.conf"
+    if [[ -f "$config_file" ]] && grep -q '^GROUP_OVERLAY=' "$config_file" 2>/dev/null; then
+        sed -i '/^GROUP_OVERLAY=/d' "$config_file"
+        success "Group overlay: removed from config"
+    fi
+    if [[ -n "$autostart_file" ]] && grep -q 'hypr-group-overlay' "$autostart_file" 2>/dev/null; then
+        sed -i '/hypr-group-overlay/d' "$autostart_file"
+        success "Group overlay: removed from autostart"
+    fi
+    if [[ -n "$bindings_file" ]] && grep -q '# BEGIN hypr-group-overlay$' "$bindings_file" 2>/dev/null; then
+        sed -i '/^# BEGIN hypr-group-overlay$/,/^# END hypr-group-overlay$/d' "$bindings_file"
+        success "Group overlay: removed keybindings"
+    fi
+    looknfeel="$HOME/.config/hypr/looknfeel.conf"
+    if [[ -f "$looknfeel" ]] && grep -q '# BEGIN hypr-group-overlay groupbar' "$looknfeel" 2>/dev/null; then
+        sed -i '/^# BEGIN hypr-group-overlay groupbar$/,/^# END hypr-group-overlay groupbar$/d' "$looknfeel"
+        success "Group overlay: re-enabled built-in groupbar"
+    fi
+fi
+
+# ─── Revert: notifications ───────────────────────────────────
+
+if m_has_feature "notifications"; then
+    if [[ -n "$autostart_file" ]] && grep -q 'hypr-notif-ws' "$autostart_file" 2>/dev/null; then
+        sed -i '/hypr-notif-ws/d' "$autostart_file"
+        success "Notifications: removed from autostart"
+    fi
+fi
+
+# ─── Revert: keybinds ────────────────────────────────────────
+
+if m_has_feature "keybinds"; then
+    if [[ -n "$bindings_file" ]] && grep -q '# BEGIN hypr-workflow keybinds' "$bindings_file" 2>/dev/null; then
+        sed -i '/^# BEGIN hypr-workflow keybinds$/,/^# END hypr-workflow keybinds$/d' "$bindings_file"
+        success "Keybindings: removed workspace group bindings"
+    fi
+fi
+
+# ─── Delete created files ────────────────────────────────────
+
+while IFS= read -r filepath; do
+    if [[ -n "$filepath" ]] && [[ -f "$filepath" ]]; then
+        rm "$filepath"
+        success "Deleted: $filepath"
+    fi
+done < <(echo "$MANIFEST" | jq -r '.created_files[]? // empty')
+
+# ─── Kill processes and clean up ─────────────────────────────
+
+pkill -f hypr-group-overlay 2>/dev/null || true
+pkill -f hypr-devns-daemon 2>/dev/null || true
+sudo /usr/bin/hypr-devns-helper destroy-all 2>/dev/null || true
+
+# ─── Remove manifest ─────────────────────────────────────────
+
+rm "$MANIFEST_FILE"
+rmdir "$(dirname "$MANIFEST_FILE")" 2>/dev/null || true
+
+echo
+echo "Done. Restart Hyprland or reboot to complete."
