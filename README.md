@@ -1,128 +1,208 @@
-# hyprflow
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg" />
+    <img alt="hyprflow" src="assets/banner-dark.svg" width="500" />
+  </picture>
+  <br />
+  <strong>A better Hyprland workflow for developers</strong>
+  <br /><br />
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue" /></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Arch%20Linux-1793d1?logo=archlinux&logoColor=white" />
+  <img alt="Hyprland" src="https://img.shields.io/badge/Hyprland-00bcd4?logo=data:image/svg+xml;base64,&logoColor=white" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-brightgreen" />
+  <br /><br />
+  Per-group network isolation &bull; Browser &amp; Docker integration &bull; Workspace group overlay
+</p>
 
-Hyprland workflow tools: group overlay + per-workspace network namespaces.
+---
+
+> _"My dream would be a very simple set of desktops that have their own logical consistent behaviors such that I could easily go between the three and have them set up perfectly. In my dream world, each of these would be a different remote computer that I'm controlling from here."_ &mdash; Theo, Feb 2026
+
+Okay, DONE!
+
+Built in response to Theo's [_Agentic Coding Has A HUGE Problem_](https://www.youtube.com/watch?v=YVq28OTPCKw), Hyprflow introduces workspace groups for Hyprland &mdash; each group gets its own network namespace with its own `localhost`. No more port collisions, cookie conflicts, or terminal tab chaos.
+
+[Read the full write-up &rarr;](https://example.com/TODO)
+
+---
+
+<p align="center">
+  <em>Demo video coming soon</em>
+  <!-- <a href="https://www.youtube.com/watch?v=TODO">
+    <img src="https://img.youtube.com/vi/TODO/maxresdefault.jpg" alt="Hyprflow Demo" width="720" />
+  </a> -->
+</p>
+
+---
 
 ## What it does
 
-**devns** gives each Hyprland workspace its own network namespace. Programs launched in workspace 2 can't see `localhost` from workspace 3. This means you can run separate dev servers on different workspaces without port conflicts, and Docker containers are reachable from the workspace they were started on.
+Hyprflow organizes Hyprland workspaces into **workspace groups** &mdash; sets of 10 workspaces (1-10, 11-20, 21-30, etc.) that each share a single Linux network namespace. Each group gets its own isolated `localhost`, so two dev servers can both run on `localhost:3000` in different groups without conflict. Docker containers, browser tabs, and cookies are all group-aware.
 
-**group-overlay** shows a visual overlay for Hyprland tab groups.
+```
+Group 1 (ws 1-10)            Group 2 (ws 11-20)           Group 3 (ws 21-30)
+┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
+│  localhost:3000  │         │  localhost:3000  │         │  localhost:3000  │
+│  localhost:5432  │         │  localhost:8080  │         │  localhost:5432  │
+│                  │         │                  │         │                  │
+│  ── veth ──────  │         │  ── veth ──────  │         │  ── veth ──────  │
+└────────┬─────────┘         └────────┬─────────┘         └────────┬─────────┘
+         │                            │                            │
+         └────────────────────────────┼────────────────────────────┘
+                                      │
+                              Host (NAT / internet)
+```
 
-## Caveats
+Because isolation happens at the network layer, your projects run exactly as they would normally &mdash; same ports, same auth redirects, same cookies, same Docker setup. No rebuilds, no per-project dev configs, no workarounds. You just work in a different workspace group.
 
-- IPv4 only — `localhost` is forced to `127.0.0.1` inside namespaces. Apps that rely on `::1` won't work.
-- HTTPS localhost bypasses the proxy and extension entirely, so cookies are not workspace-isolated. Use HTTP for local dev.
-- The Docker runtime (`hypr-devns-runc`) is registered as the **default OCI runtime**, so all containers are affected. Revert with `hyprflow-uninstall`.
-- Port publishing is stripped from `docker compose up`/`create`/`run` since it's redundant inside namespaces and would conflict globally. If you need host-published ports (e.g. for access from another machine), run `docker run -p` directly on the host outside a namespace.
-- See [Docker limitations](#docker-limitations) for additional edge cases.
+Additional features for [Omarchy](https://github.com/nicknisi/omarchy) users:
 
-## Dependencies
+- **Workspace notifications** &mdash; prepends the workspace number to notifications, so you know _which group_ Claude Code just finished in
+- **Group overlay** &mdash; keybind-triggered preview showing which workspace groups are active and what applications are running in each
+- **Waybar integration** &mdash; persistent workspace group indicators for quick at-a-glance navigation
 
-- Hyprland
-- jq, socat, iproute2, iptables
-- Python 3 with PyGObject + gtk4-layer-shell (for group-overlay)
+## Usage
+
+Dedicate one workspace group per project. Everything inside a group &mdash; terminals, editor, browser tabs, dev servers, Docker containers &mdash; shares the same isolated `localhost`. Switch groups to switch projects.
+
+**Example: working on three projects in parallel**
+
+1. **Group 1 (ws 1-10)** &mdash; T3 Chat
+   - ws 1: terminal running Claude Code
+   - ws 2: editor with the codebase open
+   - ws 3: browser on `localhost:3000` (auth, cookies, sessions all scoped to this group)
+
+2. **Group 2 (ws 11-20)** &mdash; Lawn
+   - ws 1: terminal running the dev server
+   - ws 2: editor
+   - ws 3: browser on `localhost:3000` (no conflict with Group 1)
+
+3. **Group 3 (ws 21-30)** &mdash; FS2 CLI
+   - ws 1: terminal running tests
+   - ws 2: editor
+
+Switch between groups with `SUPER+ALT+1-3`. Each group is its own self-contained environment &mdash; no port collisions, no cookie conflicts, no hunting through terminal tabs to figure out which project just finished.
+
+**Omarchy users:** When Claude Code finishes a task, the notification includes the workspace number (e.g. `[11] Task complete`) so you know it came from Group 2 without having to hunt through tabs. The group overlay lets you glance at all active groups and their windows without leaving your current workspace.
 
 ## Install
 
-Arch Linux (AUR-style local package):
+Arch Linux:
 
 ```bash
+git clone https://github.com/Dillpickleschmidt/hyprflow.git
+cd hyprflow
 makepkg -si
 ```
 
-This installs all scripts to `/usr/bin/` and config to `/etc/`.
-
-## Setup
-
-After installing, run the interactive installer to integrate with your desktop:
+Then run the interactive installer:
 
 ```bash
 hyprflow-install
 ```
 
-This configures:
+This walks you through enabling each feature:
 
-- Hyprland autostart (adds `hypr-devns-daemon`)
-- Terminal binding (wraps `$terminal` with `hypr-devns-exec`)
-- Walker app launcher prefix
-- Ghostty single-instance override
-- Browser extensions (Chromium, Helium, Zen)
-- Docker runtime (registers `hypr-devns-runc` as default OCI runtime)
+| Feature             | Description                                     |
+| ------------------- | ----------------------------------------------- |
+| Namespace isolation | Core daemon + terminal wrapping                 |
+| Browser extension   | Chromium/Firefox localhost routing via proxy    |
+| Docker runtime      | OCI runtime wrapper for container isolation     |
+| Ghostty override    | Disables single-instance mode                   |
+| Workspace groups    | Keybinds for group-based navigation             |
+| Group overlay       | Visual workspace group preview (Omarchy)        |
+| Notifications       | Workspace-numbered notification proxy (Omarchy) |
+| Waybar              | Persistent workspace indicators (Omarchy)       |
 
 Reboot after setup, or restart Hyprland, Docker, and your browsers individually.
 
-To undo everything: `hyprflow-uninstall`
+> [!IMPORTANT]
+> Docker containers created before installation will need to be re-created. You'll also have to sign in again to your `localhost` tabs since pre-existing `localhost` cookies are not tracked.
+
+To undo everything: `hyprflow-uninstall` and reboot.
+
+### Dependencies
+
+- Hyprland
+- `jq`, `socat`, `iproute2`, `iptables`
+- Python 3
+- `gum` (interactive installer)
+- `python-gobject` + `gtk4-layer-shell` (group overlay, optional)
+- `python-dbus` (notifications, optional)
 
 ## Configuration
 
-The package installs defaults at `/etc/hypr-devns.conf`. Override per-user at `~/.config/hypr-devns.conf`:
+Defaults live at `/etc/hypr-devns.conf`. Override per-user at `~/.config/hypr-devns.conf`:
 
 ```bash
-# Which workspaces get namespaces: "all" or comma-separated IDs
-DEVNS_WORKSPACES=all
-
-# DNS servers inside namespaces
-DEVNS_DNS="9.9.9.9 1.1.1.1"
-
-# WAN interface for NAT (auto-detected from default route if empty)
-DEVNS_WAN_IFACE=""
-
-# Enable group tab overlay (true/false)
-GROUP_OVERLAY=true
+DEVNS_WORKSPACES=all          # "all" or comma-separated workspace IDs
+DEVNS_DNS="9.9.9.9 1.1.1.1"  # DNS servers inside namespaces
+DEVNS_WAN_IFACE=""            # WAN interface for NAT (auto-detected if empty)
+GROUP_OVERLAY=true            # Enable group overlay widget (requires restart)
+DEVNS_HOST_APPS=""            # Apps that skip namespace (browsers use extension instead)
 ```
 
-If WAN auto-detection fails (e.g. multiple default routes, VPN), set `DEVNS_WAN_IFACE` explicitly. Check your current default route with `ip route show default`.
+If WAN auto-detection fails (multiple default routes, VPN), set `DEVNS_WAN_IFACE` explicitly. Check with `ip route show default`.
 
-## How it works
+## Architecture
 
-Linux lets you create isolated "copies" of the network stack. A process inside a namespace has its own `localhost`, its own ports, its own routing table — completely separate from the host. Two processes in different namespaces can both bind to port 3000 without conflict because they're on different localhosts.
+### Namespace lifecycle
 
-The daemon (`hypr-devns-daemon`) listens to Hyprland IPC and lazily creates one namespace per workspace as you switch between them. Each namespace (`hyprns_1`, `hyprns_2`, ...) gets its own veth pair, NAT, and DNS config.
+The daemon (`hypr-devns-daemon`) listens to Hyprland IPC and lazily creates one namespace per workspace group (10 workspaces per group). Each namespace gets:
 
-`hypr-devns-exec` runs a command inside the current workspace's namespace. Every app launched from either the terminal or Walker (via `launch_prefix`) enters the namespace automatically, so most things just work.
+- A veth pair connecting it to the host
+- Its own IP (`10.200.<group>.2/24`)
+- NAT rules for outbound internet
+- DNS config and a custom `/etc/hosts` forcing `localhost` to `127.0.0.1`
 
-Two categories of apps need special handling:
-
-1. **Single-instance apps** that share state across workspaces — opening a "new window" actually reuses the original process and its namespace. This includes all web browsers and some apps like Ghostty (which hardcodes `--gtk-single-instance=true` in its desktop file).
-2. **Daemon-managed apps** that start before any workspace context exists, like Docker containers.
-
-Ghostty is the simplest case — the setup script installs a desktop file override that disables single-instance mode, so each window spawns a fresh process that inherits the correct namespace.
+`hypr-devns-exec` launches commands inside the current workspace group's namespace. Apps started from the terminal or app launcher enter the namespace automatically.
 
 ### Browser integration
 
-A browser extension + local proxy (`hypr-devns-proxy`) redirects `localhost` requests to the correct namespace IP (`10.200.<ws>.2`) based on which workspace the tab was opened on. A DNAT rule inside each namespace redirects traffic arriving on the veth IP to loopback, and a custom `/etc/hosts` forces `localhost` to resolve to IPv4, so dev servers work transparently without needing to bind to `0.0.0.0`. This sidesteps the single-instance problem at the application layer.
+A single browser process can't be moved between namespaces. Instead, a **browser extension + local proxy** (`hypr-devns-proxy` on port 18800) handles routing at the application layer:
 
-#### Cookie isolation
+1. Extension tracks which workspace group each tab belongs to
+2. Extension injects `X-Devns-WS` header on `localhost` requests
+3. Proxy routes the request to the correct namespace IP (`10.200.<group>.2`)
+4. DNAT rule inside the namespace redirects veth IP to loopback
 
-Since all workspaces share one browser, cookies on `localhost` would collide across workspaces. The proxy and extension transparently namespace cookie names with a `_ws{id}_` prefix (e.g., `_ws3_session`). Two layers make this invisible to app code:
-
-- The proxy rewrites HTTP `Cookie`/`Set-Cookie` headers — stripping the prefix on requests and adding it on responses — so servers never see prefixed names.
-- The extension overrides the native `document.cookie` getter/setter, so client JS reading or writing cookies also sees unprefixed names.
-
-The browser stores cookies with prefixed names, but neither server code nor client code ever sees the prefix.
+**Cookie isolation:** Cookies are transparently namespaced with a `_wg{id}_` prefix. The proxy rewrites `Cookie`/`Set-Cookie` HTTP headers, and the extension overrides `document.cookie` in JS. Neither server nor client code ever sees the prefix.
 
 ### Docker integration
 
-`hypr-devns-runc` is an OCI runtime wrapper that patches container configs to join the active workspace's network namespace. Docker's bridge networking follows the container, so `localhost` inside the container maps to the workspace's loopback. Containers remember which workspace they were started on across restarts (cached in `/run/`, lost on reboot — recreate containers after reboot).
+`hypr-devns-runc` is an OCI runtime wrapper registered as the default Docker runtime. On container create, it patches the container config to join the active workspace group's network namespace. One daemon, shared image/build cache, isolated networking.
 
-An alternative approach would be running separate Docker daemons per workspace with a shared image store. This was rejected because each daemon maintains its own build cache, layer deduplication, and container metadata — multiplying memory and disk I/O overhead. The current approach reuses the single daemon and achieves isolation at the OCI runtime and compose layers instead.
+**Compose:** A `docker` wrapper sets `COMPOSE_PROJECT_NAME` to `<dir>-wg<id>` so group 1 and group 2 get independent container sets. Port publishing (`ports:`) is stripped since it's redundant inside namespaces and would conflict globally.
 
-Containers created before installation won't be in a workspace namespace — recreate them after setup.
+### Special cases
 
-Namespace isolation applies to localhost only — containers can still reach each other via the Docker bridge network or host IP if needed.
+| App type | Problem                                       | Solution                                              |
+| -------- | --------------------------------------------- | ----------------------------------------------------- |
+| Browsers | Single-instance process, shared across groups | Extension + proxy (application-layer routing)         |
+| Ghostty  | `--gtk-single-instance=true` hardcoded        | Desktop file override disabling single-instance       |
+| Docker   | Daemon starts before workspace context exists | OCI runtime wrapper patches netns at container create |
 
-#### Compose isolation
+## Caveats
 
-A docker wrapper script (injected via `PATH`) handles two things:
+- **IPv4 only** &mdash; `localhost` is forced to `127.0.0.1`. Apps relying on `::1` won't work.
+- **HTTP only** &mdash; HTTPS localhost bypasses the proxy entirely, so cookies won't be group-isolated. Use HTTP for local dev.
+- **Docker is global** &mdash; The runtime is registered as the default OCI runtime, affecting all containers. Revert with `hyprflow-uninstall`.
+- **Port publishing stripped** &mdash; `docker compose` `ports:` directives are removed (redundant in namespaces, would conflict globally). Use `docker run -p` directly on the host if you need external access.
+- **Browser cache bleed** &mdash; The browser's back/forward cache is shared across groups, so switching to a `localhost` tab in another group may show stale state from the previous group. A manual refresh clears it. This may be addressed in a future iteration using containerized browser instances (TBD).
+- **Container state** &mdash; Group mapping is cached in `/run/` (lost on reboot). Containers created before installation need to be recreated.
 
-1. Sets `COMPOSE_PROJECT_NAME` to `<directory>-ws<id>`, so running the same project in workspaces 2 and 3 creates independent container sets. `docker compose up` / `down` / `ps` only affect the current workspace's containers. Override with `-p <name>` or by setting `COMPOSE_PROJECT_NAME` yourself.
+<details>
+<summary><strong>Docker edge cases</strong></summary>
 
-2. Strips port publishing (`ports:` directives) for `up`/`create`/`run` commands. Ports are redundant inside namespaces — containers are reachable via the namespace's localhost directly — and would conflict since Docker's port allocator is global across the single daemon.
+1. `docker stats` shows zero network counters for all but the most recently started container per group.
+2. `docker network disconnect`/`connect` on a running container may fail.
+3. Cross-network DNS resolution may not work for containers on separate Docker networks in the same group.
+4. `--network=none` containers add ~5s delay to the next container start in that group.
+5. Container starts are serialized per group (~200-500ms overhead each).
 
-#### Docker limitations
+</details>
 
-1. `docker stats` shows zero network counters for all but the most recently started container per workspace.
-2. `docker network disconnect` / `docker network connect` on a running container may fail.
-3. If multiple containers in the same workspace are on separate Docker networks, DNS resolution for cross-network service names may not work (same-network is fine).
-4. Containers using `--network=none` add a ~5 second delay to the next container start in that workspace.
-5. Each container start is serialized per workspace (~200-500ms overhead each) to prevent internal naming conflicts.
+## License
+
+Apache 2.0 &mdash; see [LICENSE](LICENSE) for details.
