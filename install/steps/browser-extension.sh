@@ -1,5 +1,17 @@
 # Step: Browser extension
 
+add_host_app() {
+    local cmd="$1"
+    local config="$HOME/.config/hypr-devns.conf"
+    touch "$config"
+    if grep -q '^DEVNS_HOST_APPS=' "$config" 2>/dev/null; then
+        grep '^DEVNS_HOST_APPS=' "$config" | grep -qw "$cmd" && return 0
+        sed -i "s|^DEVNS_HOST_APPS=\"\(.*\)\"|DEVNS_HOST_APPS=\"\1 ${cmd}\"|" "$config"
+    else
+        echo "DEVNS_HOST_APPS=\"${cmd}\"" >> "$config"
+    fi
+}
+
 add_load_extension() {
     local flags_file="$1"
     local label="$2"
@@ -55,12 +67,14 @@ step_browser_extension() {
     # Chromium
     if echo "$selected_browsers" | grep -qF "Chromium"; then
         add_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium"
+        add_host_app "chromium"
         manifest_add_browser "Chromium"
     fi
 
     # Helium
     if echo "$selected_browsers" | grep -qF "Helium"; then
         add_load_extension "$DEVNS_HELIUM_FLAGS" "Helium"
+        add_host_app "helium-browser"
         manifest_add_browser "Helium"
     fi
 
@@ -85,6 +99,7 @@ step_browser_extension() {
                 fi
                 success "Zen: added extension policy"
             fi
+            add_host_app "zen-browser"
             manifest_add_browser "Zen"
             manifest_set_path "zen_policies" "$zen_policies"
         fi

@@ -11,6 +11,14 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
+# Apps listed in DEVNS_HOST_APPS run on the host (e.g. browsers that use
+# the devns extension+proxy for per-tab namespace routing).
+for _arg in "$@"; do
+    for _app in $DEVNS_HOST_APPS; do
+        [ "$_app" = "$_arg" ] && exec "$@"
+    done
+done
+
 ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
 
 if [ "$ws_id" -gt 0 ] 2>/dev/null; then

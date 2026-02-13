@@ -63,6 +63,14 @@ fi
 # ─── Revert: browser extension ───────────────────────────────
 
 if m_has_feature "browser_extension"; then
+    remove_host_app() {
+        local cmd="$1"
+        local config="$HOME/.config/hypr-devns.conf"
+        [[ -f "$config" ]] || return 0
+        grep -q '^DEVNS_HOST_APPS=' "$config" || return 0
+        sed -i "/^DEVNS_HOST_APPS=/ { s/ ${cmd}//; s/${cmd} //; s/${cmd}//; }" "$config"
+    }
+
     remove_load_extension() {
         local flags_file="$1"
         local label="$2"
@@ -75,8 +83,8 @@ if m_has_feature "browser_extension"; then
 
     while IFS= read -r browser; do
         case "$browser" in
-            Chromium) remove_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium" ;;
-            Helium)   remove_load_extension "$DEVNS_HELIUM_FLAGS" "Helium" ;;
+            Chromium) remove_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium"; remove_host_app "chromium" ;;
+            Helium)   remove_load_extension "$DEVNS_HELIUM_FLAGS" "Helium"; remove_host_app "helium-browser" ;;
             Zen)
                 zen_policies=$(m_get '.paths.zen_policies')
                 if [[ -n "$zen_policies" ]] && [[ -f "$zen_policies" ]] && grep -q 'hypr-devns@localhost' "$zen_policies" 2>/dev/null; then
@@ -84,6 +92,7 @@ if m_has_feature "browser_extension"; then
                     sudo mv "${zen_policies}.tmp" "$zen_policies"
                     success "Zen: removed extension policy"
                 fi
+                remove_host_app "zen-browser"
                 ;;
         esac
     done < <(echo "$MANIFEST" | jq -r '.browsers[]? // empty')
