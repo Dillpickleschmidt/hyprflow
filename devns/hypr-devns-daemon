@@ -104,7 +104,7 @@ while true; do
                 ws_id=$(echo "${line#*>>}" | cut -d',' -f2)
                 if [[ "$ws_id" =~ ^[0-9]+$ ]] && [ "$ws_id" -gt 0 ]; then
                     grp_base=$(( ((ws_id - 1) / 10) * 10 + 1 ))
-                    if ! grep -q "\"${grp_base}\"" "${STATE_DIR}/waybar-pw" 2>/dev/null; then
+                    if ! grep -qw "${grp_base}" "${STATE_DIR}/waybar-pw" 2>/dev/null; then
                         hypr-workspace-group init &
                     fi
                 fi

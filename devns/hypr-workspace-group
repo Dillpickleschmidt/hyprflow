@@ -25,6 +25,8 @@ get_slot() {
 }
 
 # Update waybar to show persistent workspaces for the active group + any group with windows
+# Uses Hyprland workspace rules for instant display (no waybar reload).
+# Falls back to hyprctl reload + SIGUSR2 only when removing stale workspaces.
 WAYBAR_CONFIG="$HOME/.config/waybar/config.jsonc"
 WAYBAR_PW_CACHE="${XDG_RUNTIME_DIR}/hypr-devns/waybar-pw"
 
@@ -41,34 +43,59 @@ update_waybar() {
     local all_groups
     all_groups=$(printf '%s\n%s\n' "$active_group" "$occupied_groups" | sort -un | grep -v '^$')
 
-    # Build persistent-workspaces JSON string in bash (no jq loop)
-    local pw="{"
-    local first=true
-    local g base i
+    # Build desired workspace set and hyprctl batch command
+    local ws_list="" batch="" pw="{" first=true
+    local g base i ws
     for g in $all_groups; do
         base=$(( (g - 1) * 10 ))
         for i in 1 2 3 4 5; do
+            ws=$((base + i))
+            ws_list+="$ws "
+            batch+="keyword workspace $ws, persistent:true; "
             $first && first=false || pw+=","
-            pw+="\"$((base + i))\":[]"
+            pw+="\"$ws\":[]"
         done
     done
     pw+="}"
 
-    # Skip if unchanged (avoids unnecessary waybar restart)
+    # Skip if unchanged
     local cached
     cached=$(cat "$WAYBAR_PW_CACHE" 2>/dev/null)
-    if [ "$pw" = "$cached" ]; then
+    if [ "$ws_list" = "$cached" ]; then
         return
     fi
-    echo "$pw" > "$WAYBAR_PW_CACHE"
 
-    # Update waybar config and signal reload
-    local tmp
-    tmp=$(mktemp)
-    jq --argjson pw "$pw" '."hyprland/workspaces"."persistent-workspaces" = $pw' \
-        "$WAYBAR_CONFIG" > "$tmp" && mv "$tmp" "$WAYBAR_CONFIG"
+    # Check if any previously-shown workspaces are being removed
+    local needs_removal=false
+    if [ -n "$cached" ]; then
+        for old_ws in $cached; do
+            case " $ws_list" in
+                *" $old_ws "*) ;;
+                *) needs_removal=true; break ;;
+            esac
+        done
+    fi
 
-    pkill -SIGUSR2 waybar
+    echo "$ws_list" > "$WAYBAR_PW_CACHE"
+
+    if [ "$needs_removal" = true ]; then
+        # Removal path: clear stale Hyprland persistent workspaces, then reload waybar
+        hyprctl reload
+        hyprctl --batch "$batch" > /dev/null 2>&1
+        local tmp
+        tmp=$(mktemp)
+        if jq --argjson pw "$pw" \
+            '."hyprland/workspaces"."persistent-workspaces" = $pw' \
+            "$WAYBAR_CONFIG" > "$tmp"; then
+            mv "$tmp" "$WAYBAR_CONFIG"
+        else
+            rm -f "$tmp"
+        fi
+        pkill -SIGUSR2 waybar
+    else
+        # Addition-only path: instant via Hyprland IPC, no waybar reload
+        hyprctl --batch "$batch" > /dev/null 2>&1
+    fi
 }
 
 case "$1" in

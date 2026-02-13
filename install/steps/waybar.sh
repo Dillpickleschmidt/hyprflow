@@ -39,4 +39,20 @@ step_waybar() {
     else
         info "Waybar: format-icons already simplified"
     fi
+
+    # Clear persistent-workspaces (now managed via Hyprland workspace rules at runtime)
+    local pw_count
+    pw_count=$(jq -r "${hs_module}.\"persistent-workspaces\" | keys | length" "$waybar_config" 2>/dev/null) || pw_count=0
+    if [[ "$pw_count" -gt 0 ]] 2>/dev/null; then
+        local tmp
+        tmp=$(mktemp)
+        if jq "${hs_module}.\"persistent-workspaces\" = {}" "$waybar_config" > "$tmp"; then
+            mv "$tmp" "$waybar_config"
+        else
+            rm -f "$tmp"
+        fi
+        success "Waybar: cleared persistent-workspaces (managed at runtime)"
+    else
+        info "Waybar: persistent-workspaces already empty"
+    fi
 }
