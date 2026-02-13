@@ -20,6 +20,7 @@ package() {
     install -Dm755 "$startdir/devns/hypr-devns-setup" "$pkgdir/usr/bin/hypr-devns-setup"
     install -Dm755 "$startdir/devns/hypr-devns-disable" "$pkgdir/usr/bin/hypr-devns-disable"
     install -Dm755 "$startdir/devns/hypr-devns-runc" "$pkgdir/usr/bin/hypr-devns-runc"
+    install -Dm755 "$startdir/devns/hypr-workspace-group" "$pkgdir/usr/bin/hypr-workspace-group"
 
     install -Dm644 "$startdir/devns/lib/devns-common.sh" "$pkgdir/usr/share/hypr-workflow/lib/devns-common.sh"
 

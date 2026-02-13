@@ -10,10 +10,11 @@ ns_create() {
     local id="$1"
     devns_validate_id "$id" || exit 1
 
-    local ns="$(devns_ns_name "$id")"
+    # id is a namespace ID (not workspace ID), use directly
+    local ns="hyprns_${id}"
     local veth_h="veth_h${id}"
     local veth_n="veth_n${id}"
-    local subnet="$(devns_subnet "$id")"
+    local subnet="${DEVNS_SUBNET_BASE}.${id}"
     local wan
     wan="$(devns_get_wan_iface)"
 
@@ -82,9 +83,10 @@ ns_destroy() {
     local id="$1"
     devns_validate_id "$id" || exit 1
 
-    local ns="$(devns_ns_name "$id")"
+    # id is a namespace ID (not workspace ID), use directly
+    local ns="hyprns_${id}"
     local veth_h="veth_h${id}"
-    local subnet="$(devns_subnet "$id")"
+    local subnet="${DEVNS_SUBNET_BASE}.${id}"
     local wan
     if [ -f "/etc/netns/${ns}/wan_iface" ]; then
         wan="$(cat "/etc/netns/${ns}/wan_iface")"

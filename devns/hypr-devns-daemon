@@ -10,6 +10,9 @@ set -uo pipefail
 STATE_DIR="${XDG_RUNTIME_DIR}/hypr-devns"
 mkdir -p "$STATE_DIR"
 
+# Set persistent workspace rules for the active group so waybar shows the right workspaces
+hypr-workspace-group init
+
 should_namespace() {
     local id="$1"
     # Skip special workspaces (negative IDs)
@@ -27,13 +30,15 @@ ensure_namespace() {
     if ! should_namespace "$id"; then
         return 0
     fi
-    if [ -f "${STATE_DIR}/${id}" ]; then
+    local ns_id
+    ns_id="$(devns_ns_id "$id")"
+    if [ -f "${STATE_DIR}/ns_${ns_id}" ]; then
         return 0
     fi
-    if sudo /usr/bin/hypr-devns-helper create "$id"; then
-        touch "${STATE_DIR}/${id}"
+    if sudo /usr/bin/hypr-devns-helper create "$ns_id"; then
+        touch "${STATE_DIR}/ns_${ns_id}"
     else
-        echo "warning: failed to create namespace for workspace $id" >&2
+        echo "warning: failed to create namespace for workspace $id (ns $ns_id)" >&2
     fi
 }
 
@@ -93,6 +98,19 @@ while true; do
                 if [[ "$ws_id" =~ ^[0-9]+$ ]]; then
                     ensure_namespace "$ws_id"
                 fi
+                ;;
+            openwindow\>\>*)
+                # openwindow can only add a group — skip if group already shown
+                ws_id=$(echo "${line#*>>}" | cut -d',' -f2)
+                if [[ "$ws_id" =~ ^[0-9]+$ ]] && [ "$ws_id" -gt 0 ]; then
+                    grp_base=$(( ((ws_id - 1) / 10) * 10 + 1 ))
+                    if ! grep -q "\"${grp_base}\"" "${STATE_DIR}/waybar-pw" 2>/dev/null; then
+                        hypr-workspace-group init &
+                    fi
+                fi
+                ;;
+            closewindow\>\>*|movewindow\>\>*)
+                hypr-workspace-group init &
                 ;;
         esac
     done

@@ -1,0 +1,110 @@
+#!/bin/bash
+# hypr-workspace-group — workspace group navigation
+# Groups of 10 workspaces share a network namespace.
+# Group 1 = ws 1-10, Group 2 = ws 11-20, etc.
+
+STATE_DIR="${XDG_RUNTIME_DIR}/hypr-devns"
+STATE="${STATE_DIR}/active-group"
+
+get_group() {
+    cat "$STATE" 2>/dev/null || echo 1
+}
+
+# Convert group + slot to workspace ID
+# slot 1-9 = keys 1-9, slot 10 = key 0
+group_to_ws() {
+    echo "$(( ($1 - 1) * 10 + $2 ))"
+}
+
+# Get current slot (position within group) from active workspace
+get_slot() {
+    local ws_id group
+    ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
+    group=$(( (ws_id - 1) / 10 + 1 ))
+    echo "$(( ws_id - (group - 1) * 10 ))"
+}
+
+# Update waybar to show persistent workspaces for the active group + any group with windows
+WAYBAR_CONFIG="$HOME/.config/waybar/config.jsonc"
+WAYBAR_PW_CACHE="${XDG_RUNTIME_DIR}/hypr-devns/waybar-pw"
+
+update_waybar() {
+    local active_group
+    active_group="$(get_group)"
+
+    # Get unique groups that have client windows
+    local occupied_groups
+    occupied_groups=$(hyprctl clients -j | jq -r \
+        '[.[].workspace.id | select(. > 0) | (. - 1) / 10 + 1 | floor] | unique | .[]')
+
+    # Merge active group + occupied groups, deduplicate
+    local all_groups
+    all_groups=$(printf '%s\n%s\n' "$active_group" "$occupied_groups" | sort -un | grep -v '^$')
+
+    # Build persistent-workspaces JSON string in bash (no jq loop)
+    local pw="{"
+    local first=true
+    local g base i
+    for g in $all_groups; do
+        base=$(( (g - 1) * 10 ))
+        for i in 1 2 3 4 5; do
+            $first && first=false || pw+=","
+            pw+="\"$((base + i))\":[]"
+        done
+    done
+    pw+="}"
+
+    # Skip if unchanged (avoids unnecessary waybar restart)
+    local cached
+    cached=$(cat "$WAYBAR_PW_CACHE" 2>/dev/null)
+    if [ "$pw" = "$cached" ]; then
+        return
+    fi
+    echo "$pw" > "$WAYBAR_PW_CACHE"
+
+    # Update waybar config and signal reload
+    local tmp
+    tmp=$(mktemp)
+    jq --argjson pw "$pw" '."hyprland/workspaces"."persistent-workspaces" = $pw' \
+        "$WAYBAR_CONFIG" > "$tmp" && mv "$tmp" "$WAYBAR_CONFIG"
+
+    pkill -SIGUSR2 waybar
+}
+
+case "$1" in
+    init)
+        update_waybar
+        ;;
+    switch)
+        slot=$(get_slot)
+        echo "$2" > "$STATE"
+        update_waybar
+        hyprctl dispatch workspace "$(group_to_ws "$2" "$slot")"
+        ;;
+    ws)
+        hyprctl dispatch workspace "$(group_to_ws "$(get_group)" "$2")"
+        ;;
+    move)
+        hyprctl dispatch movetoworkspace "$(group_to_ws "$(get_group)" "$2")"
+        ;;
+    movesilent)
+        hyprctl dispatch movetoworkspacesilent "$(group_to_ws "$(get_group)" "$2")"
+        ;;
+    next)
+        group=$(get_group)
+        slot=$(get_slot)
+        new_group=$(( group + 1 ))
+        echo "$new_group" > "$STATE"
+        update_waybar
+        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$slot")"
+        ;;
+    prev)
+        group=$(get_group)
+        slot=$(get_slot)
+        new_group=$(( group - 1 ))
+        [ "$new_group" -lt 1 ] && new_group=1
+        echo "$new_group" > "$STATE"
+        update_waybar
+        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$slot")"
+        ;;
+esac

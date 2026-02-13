@@ -88,7 +88,7 @@ if [ "$subcommand" = "create" ] && [ -n "$bundle" ] && [ -n "$container_id" ]; t
                 # the second container's rename races with the first. A background poller
                 # inherits the lock fd and holds it until eth0 appears, ensuring only
                 # one container goes through runc-create -> bridge-join at a time.
-                lockfile="/run/hypr-devns/ns_${ws}.lock"
+                lockfile="/run/hypr-devns/ns_$(devns_ns_id "$ws").lock"
                 exec 9>"$lockfile"
                 flock 9
 

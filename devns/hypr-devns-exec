@@ -16,7 +16,7 @@ ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
 if [ "$ws_id" -gt 0 ] 2>/dev/null; then
     ns="$(devns_ns_name "$ws_id")"
     if [ ! -e "/run/netns/${ns}" ]; then
-        sudo /usr/bin/hypr-devns-helper create "$ws_id" 2>/dev/null
+        sudo /usr/bin/hypr-devns-helper create "$(devns_ns_id "$ws_id")" 2>/dev/null
     fi
     if [ -e "/run/netns/${ns}" ]; then
         export DEVNS_WS="$ws_id"

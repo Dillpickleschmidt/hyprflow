@@ -4,7 +4,7 @@
 Listens on 127.0.0.1:18800. Routes requests based on:
   - X-Devns-WS header (Chromium extension)
   - Proxy-Authorization header (Firefox extension)
-Maps workspace ID to 10.200.<ws>.2 and forwards the request.
+Maps workspace ID to namespace IP (10.200.<ns_id>.2) and forwards the request.
 """
 
 import asyncio
@@ -23,7 +23,8 @@ ACTIVE_WS_PATH = os.path.join(
 
 
 def namespace_ip(ws_id: str) -> str:
-    return f"10.200.{ws_id}.2"
+    ns_id = (int(ws_id) - 1) // 10 + 1
+    return f"10.200.{ns_id}.2"
 
 
 def read_active_workspace() -> str:

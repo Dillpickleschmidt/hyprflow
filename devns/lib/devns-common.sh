@@ -23,16 +23,20 @@ devns_validate_id() {
     fi
 }
 
+devns_ns_id() {
+    echo $(( ($1 - 1) / 10 + 1 ))
+}
+
 devns_ns_name() {
-    echo "hyprns_${1}"
+    echo "hyprns_$(devns_ns_id "$1")"
 }
 
 devns_ns_ip() {
-    echo "${DEVNS_SUBNET_BASE}.${1}.2"
+    echo "${DEVNS_SUBNET_BASE}.$(devns_ns_id "$1").2"
 }
 
 devns_subnet() {
-    echo "${DEVNS_SUBNET_BASE}.${1}"
+    echo "${DEVNS_SUBNET_BASE}.$(devns_ns_id "$1")"
 }
 
 devns_get_wan_iface() {
