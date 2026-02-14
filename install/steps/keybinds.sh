@@ -104,17 +104,17 @@ bindd = SUPER SHIFT, code:17, Move window to sub-workspace 8, exec, hypr-workspa
 bindd = SUPER SHIFT, code:18, Move window to sub-workspace 9, exec, hypr-workspace-group move 9
 bindd = SUPER SHIFT, code:19, Move window to sub-workspace 10, exec, hypr-workspace-group move 10
 
-# Move window silently within current group
-bindd = SUPER SHIFT ALT, code:10, Move window silently to sub-workspace 1, exec, hypr-workspace-group movesilent 1
-bindd = SUPER SHIFT ALT, code:11, Move window silently to sub-workspace 2, exec, hypr-workspace-group movesilent 2
-bindd = SUPER SHIFT ALT, code:12, Move window silently to sub-workspace 3, exec, hypr-workspace-group movesilent 3
-bindd = SUPER SHIFT ALT, code:13, Move window silently to sub-workspace 4, exec, hypr-workspace-group movesilent 4
-bindd = SUPER SHIFT ALT, code:14, Move window silently to sub-workspace 5, exec, hypr-workspace-group movesilent 5
-bindd = SUPER SHIFT ALT, code:15, Move window silently to sub-workspace 6, exec, hypr-workspace-group movesilent 6
-bindd = SUPER SHIFT ALT, code:16, Move window silently to sub-workspace 7, exec, hypr-workspace-group movesilent 7
-bindd = SUPER SHIFT ALT, code:17, Move window silently to sub-workspace 8, exec, hypr-workspace-group movesilent 8
-bindd = SUPER SHIFT ALT, code:18, Move window silently to sub-workspace 9, exec, hypr-workspace-group movesilent 9
-bindd = SUPER SHIFT ALT, code:19, Move window silently to sub-workspace 10, exec, hypr-workspace-group movesilent 10
+# Move window to another group (keeps relative position)
+bindd = SUPER SHIFT ALT, code:10, Move window to group 1, exec, hypr-workspace-group movetogroup 1
+bindd = SUPER SHIFT ALT, code:11, Move window to group 2, exec, hypr-workspace-group movetogroup 2
+bindd = SUPER SHIFT ALT, code:12, Move window to group 3, exec, hypr-workspace-group movetogroup 3
+bindd = SUPER SHIFT ALT, code:13, Move window to group 4, exec, hypr-workspace-group movetogroup 4
+bindd = SUPER SHIFT ALT, code:14, Move window to group 5, exec, hypr-workspace-group movetogroup 5
+bindd = SUPER SHIFT ALT, code:15, Move window to group 6, exec, hypr-workspace-group movetogroup 6
+bindd = SUPER SHIFT ALT, code:16, Move window to group 7, exec, hypr-workspace-group movetogroup 7
+bindd = SUPER SHIFT ALT, code:17, Move window to group 8, exec, hypr-workspace-group movetogroup 8
+bindd = SUPER SHIFT ALT, code:18, Move window to group 9, exec, hypr-workspace-group movetogroup 9
+bindd = SUPER SHIFT ALT, code:19, Move window to group 10, exec, hypr-workspace-group movetogroup 10
 
 # Group tab switching (relocated from ALT to CTRL)
 bindd = SUPER CTRL, code:10, Switch to group window 1, changegroupactive, 1

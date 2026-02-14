@@ -10,6 +10,15 @@ get_group() {
     cat "$STATE" 2>/dev/null || echo 1
 }
 
+save_slot() {
+    local group="$1" slot="$2"
+    echo "$slot" > "${STATE_DIR}/group-slot-${group}"
+}
+
+restore_slot() {
+    cat "${STATE_DIR}/group-slot-${1}" 2>/dev/null || echo 1
+}
+
 # Convert group + slot to workspace ID
 # slot 1-9 = keys 1-9, slot 10 = key 0
 group_to_ws() {
@@ -103,10 +112,10 @@ case "$1" in
         update_waybar
         ;;
     switch)
-        slot=$(get_slot)
+        save_slot "$(get_group)" "$(get_slot)"
         echo "$2" > "$STATE"
         update_waybar
-        hyprctl dispatch workspace "$(group_to_ws "$2" "$slot")"
+        hyprctl dispatch workspace "$(group_to_ws "$2" "$(restore_slot "$2")")"
         ;;
     ws)
         hyprctl dispatch workspace "$(group_to_ws "$(get_group)" "$2")"
@@ -117,21 +126,25 @@ case "$1" in
     movesilent)
         hyprctl dispatch movetoworkspacesilent "$(group_to_ws "$(get_group)" "$2")"
         ;;
+    movetogroup)
+        slot=$(get_slot)
+        hyprctl dispatch movetoworkspace "$(group_to_ws "$2" "$slot")"
+        ;;
     next)
         group=$(get_group)
-        slot=$(get_slot)
+        save_slot "$group" "$(get_slot)"
         new_group=$(( group + 1 ))
         echo "$new_group" > "$STATE"
         update_waybar
-        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$slot")"
+        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$(restore_slot "$new_group")")"
         ;;
     prev)
         group=$(get_group)
-        slot=$(get_slot)
+        save_slot "$group" "$(get_slot)"
         new_group=$(( group - 1 ))
         [ "$new_group" -lt 1 ] && new_group=1
         echo "$new_group" > "$STATE"
         update_waybar
-        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$slot")"
+        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$(restore_slot "$new_group")")"
         ;;
 esac
