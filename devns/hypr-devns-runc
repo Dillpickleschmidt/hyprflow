@@ -61,8 +61,8 @@ if [ "$subcommand" = "create" ] && [ -n "$bundle" ] && [ -n "$container_id" ]; t
             fi
         fi
 
-        if [ -n "$ws" ] && [ -e "/var/run/netns/$(devns_ns_name "$ws")" ]; then
-            nspath="/var/run/netns/$(devns_ns_name "$ws")"
+        if [ -n "$ws" ] && [ -e "${DEVNS_NETNS_DIR}/$(devns_ns_name "$ws")" ]; then
+            nspath="${DEVNS_NETNS_DIR}/$(devns_ns_name "$ws")"
 
             has_netns=$(jq -e '.linux.namespaces[] | select(.type == "network")' "$config" 2>/dev/null)
 

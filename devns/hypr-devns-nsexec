@@ -29,7 +29,7 @@ if ! [[ "$uid" =~ ^[0-9]+$ ]] || ! [[ "$gid" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-if [ ! -e "/run/netns/${ns_name}" ]; then
+if [ ! -e "${DEVNS_NETNS_DIR}/${ns_name}" ]; then
     echo "error: namespace '$ns_name' does not exist" >&2
     exit 1
 fi

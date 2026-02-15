@@ -7,48 +7,35 @@ set -uo pipefail
 
 . /usr/share/hyprflow/lib/devns-common.sh
 
-STATE_DIR="${XDG_RUNTIME_DIR}/hypr-devns"
-mkdir -p "$STATE_DIR"
+mkdir -p "$DEVNS_STATE_DIR"
 
 # Set persistent workspace rules for the active group so waybar shows the right workspaces
 hypr-workspace-group init
 
-should_namespace() {
-    local id="$1"
-    # Skip special workspaces (negative IDs)
-    if [ "$id" -le 0 ] 2>/dev/null; then
-        return 1
-    fi
-    if [ "$DEVNS_WORKSPACES" = "all" ]; then
-        return 0
-    fi
-    echo ",$DEVNS_WORKSPACES," | grep -q ",${id},"
-}
-
 ensure_namespace() {
     local id="$1"
-    if ! should_namespace "$id"; then
+    if ! devns_ws_enabled "$id"; then
         return 0
     fi
     local ns_id
     ns_id="$(devns_ns_id "$id")"
-    if [ -f "${STATE_DIR}/ns_${ns_id}" ]; then
+    if [ -f "${DEVNS_STATE_DIR}/ns_${ns_id}" ]; then
         return 0
     fi
     if sudo /usr/bin/hypr-devns-helper create "$ns_id"; then
-        touch "${STATE_DIR}/ns_${ns_id}"
+        touch "${DEVNS_STATE_DIR}/ns_${ns_id}"
     else
         echo "warning: failed to create namespace for workspace $id (ns $ns_id)" >&2
     fi
 }
 
 update_active_ws() {
-    echo "$1" > "${STATE_DIR}/active-ws"
+    echo "$1" > "${DEVNS_STATE_DIR}/active-ws"
 }
 
 cleanup() {
     sudo /usr/bin/hypr-devns-helper destroy-all 2>/dev/null || true
-    rm -rf "$STATE_DIR"
+    rm -rf "$DEVNS_STATE_DIR"
 }
 
 trap cleanup EXIT TERM INT
@@ -90,8 +77,8 @@ while true; do
                 # openwindow can only add a group — skip if group already shown
                 ws_id=$(echo "${line#*>>}" | cut -d',' -f2)
                 if [[ "$ws_id" =~ ^[0-9]+$ ]] && [ "$ws_id" -gt 0 ]; then
-                    grp_base=$(( ((ws_id - 1) / 10) * 10 + 1 ))
-                    if ! grep -qw "${grp_base}" "${STATE_DIR}/waybar-pw" 2>/dev/null; then
+                    grp_base=$(( ((ws_id - 1) / DEVNS_GROUP_SIZE) * DEVNS_GROUP_SIZE + 1 ))
+                    if ! grep -qw "${grp_base}" "${DEVNS_STATE_DIR}/waybar-pw" 2>/dev/null; then
                         hypr-workspace-group init &
                     fi
                 fi

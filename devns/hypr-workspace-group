@@ -1,10 +1,11 @@
 #!/bin/bash
 # hypr-workspace-group — workspace group navigation
-# Groups of 10 workspaces share a network namespace.
+# Groups of DEVNS_GROUP_SIZE workspaces share a network namespace.
 # Group 1 = ws 1-10, Group 2 = ws 11-20, etc.
 
-STATE_DIR="${XDG_RUNTIME_DIR}/hypr-devns"
-STATE="${STATE_DIR}/active-group"
+. /usr/share/hyprflow/lib/devns-common.sh
+
+STATE="${DEVNS_STATE_DIR}/active-group"
 
 get_group() {
     cat "$STATE" 2>/dev/null || echo 1
@@ -12,41 +13,39 @@ get_group() {
 
 save_slot() {
     local group="$1" slot="$2"
-    echo "$slot" > "${STATE_DIR}/group-slot-${group}"
+    echo "$slot" > "${DEVNS_STATE_DIR}/group-slot-${group}"
 }
 
 restore_slot() {
-    cat "${STATE_DIR}/group-slot-${1}" 2>/dev/null || echo 1
-}
-
-# Convert group + slot to workspace ID
-# slot 1-9 = keys 1-9, slot 10 = key 0
-group_to_ws() {
-    echo "$(( ($1 - 1) * 10 + $2 ))"
+    cat "${DEVNS_STATE_DIR}/group-slot-${1}" 2>/dev/null || echo 1
 }
 
 # Get current slot (position within group) from active workspace
 get_slot() {
     local ws_id group
     ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
-    group=$(( (ws_id - 1) / 10 + 1 ))
-    echo "$(( ws_id - (group - 1) * 10 ))"
+    group="$(devns_ns_id "$ws_id")"
+    echo "$(( ws_id - (group - 1) * DEVNS_GROUP_SIZE ))"
 }
 
 # Update waybar to show persistent workspaces for the active group + any group with windows
 # Uses Hyprland workspace rules for instant display (no waybar reload).
 # Falls back to hyprctl reload + SIGUSR2 only when removing stale workspaces.
 WAYBAR_CONFIG="$HOME/.config/waybar/config.jsonc"
-WAYBAR_PW_CACHE="${XDG_RUNTIME_DIR}/hypr-devns/waybar-pw"
+WAYBAR_PW_CACHE="${DEVNS_STATE_DIR}/waybar-pw"
 
 update_waybar() {
+    # Serialize concurrent calls (openwindow/closewindow fire in quick succession)
+    exec 8>"${DEVNS_STATE_DIR}/waybar.lock"
+    flock 8
+
     local active_group
     active_group="$(get_group)"
 
     # Get unique groups that have client windows
     local occupied_groups
-    occupied_groups=$(hyprctl clients -j | jq -r \
-        '[.[].workspace.id | select(. > 0) | (. - 1) / 10 + 1 | floor] | unique | .[]')
+    occupied_groups=$(hyprctl clients -j | jq -r --argjson gs "$DEVNS_GROUP_SIZE" \
+        '[.[].workspace.id | select(. > 0) | (. - 1) / $gs + 1 | floor] | unique | .[]')
 
     # Merge active group + occupied groups, deduplicate
     local all_groups
@@ -54,11 +53,10 @@ update_waybar() {
 
     # Build desired workspace set and hyprctl batch command
     local ws_list="" batch="" pw="{" first=true
-    local g base i ws
+    local g i ws
     for g in $all_groups; do
-        base=$(( (g - 1) * 10 ))
-        for i in 1 2 3 4 5; do
-            ws=$((base + i))
+        for i in $(seq 1 "$DEVNS_SLOTS_PER_GROUP"); do
+            ws="$(devns_group_to_ws "$g" "$i")"
             ws_list+="$ws "
             batch+="keyword workspace $ws, persistent:true; "
             $first && first=false || pw+=","
@@ -71,6 +69,7 @@ update_waybar() {
     local cached
     cached=$(cat "$WAYBAR_PW_CACHE" 2>/dev/null)
     if [ "$ws_list" = "$cached" ]; then
+        exec 8>&-
         return
     fi
 
@@ -105,6 +104,8 @@ update_waybar() {
         # Addition-only path: instant via Hyprland IPC, no waybar reload
         hyprctl --batch "$batch" > /dev/null 2>&1
     fi
+
+    exec 8>&-
 }
 
 case "$1" in
@@ -115,20 +116,20 @@ case "$1" in
         save_slot "$(get_group)" "$(get_slot)"
         echo "$2" > "$STATE"
         update_waybar
-        hyprctl dispatch workspace "$(group_to_ws "$2" "$(restore_slot "$2")")"
+        hyprctl dispatch workspace "$(devns_group_to_ws "$2" "$(restore_slot "$2")")"
         ;;
     ws)
-        hyprctl dispatch workspace "$(group_to_ws "$(get_group)" "$2")"
+        hyprctl dispatch workspace "$(devns_group_to_ws "$(get_group)" "$2")"
         ;;
     move)
-        hyprctl dispatch movetoworkspace "$(group_to_ws "$(get_group)" "$2")"
+        hyprctl dispatch movetoworkspace "$(devns_group_to_ws "$(get_group)" "$2")"
         ;;
     movesilent)
-        hyprctl dispatch movetoworkspacesilent "$(group_to_ws "$(get_group)" "$2")"
+        hyprctl dispatch movetoworkspacesilent "$(devns_group_to_ws "$(get_group)" "$2")"
         ;;
     movetogroup)
         slot=$(get_slot)
-        hyprctl dispatch movetoworkspace "$(group_to_ws "$2" "$slot")"
+        hyprctl dispatch movetoworkspace "$(devns_group_to_ws "$2" "$slot")"
         ;;
     next)
         group=$(get_group)
@@ -136,7 +137,7 @@ case "$1" in
         new_group=$(( group + 1 ))
         echo "$new_group" > "$STATE"
         update_waybar
-        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$(restore_slot "$new_group")")"
+        hyprctl dispatch workspace "$(devns_group_to_ws "$new_group" "$(restore_slot "$new_group")")"
         ;;
     prev)
         group=$(get_group)
@@ -145,6 +146,6 @@ case "$1" in
         [ "$new_group" -lt 1 ] && new_group=1
         echo "$new_group" > "$STATE"
         update_waybar
-        hyprctl dispatch workspace "$(group_to_ws "$new_group" "$(restore_slot "$new_group")")"
+        hyprctl dispatch workspace "$(devns_group_to_ws "$new_group" "$(restore_slot "$new_group")")"
         ;;
 esac

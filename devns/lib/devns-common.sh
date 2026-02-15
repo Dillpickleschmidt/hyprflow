@@ -10,7 +10,11 @@ DEVNS_WAN_IFACE="${DEVNS_WAN_IFACE:-}"
 DEVNS_WORKSPACES="${DEVNS_WORKSPACES:-all}"
 GROUP_OVERLAY="${GROUP_OVERLAY:-true}"
 DEVNS_BROWSERS="${DEVNS_BROWSERS:-}"
+DEVNS_SLOTS_PER_GROUP="${DEVNS_SLOTS_PER_GROUP:-5}"
 DEVNS_SUBNET_BASE="10.200"
+DEVNS_GROUP_SIZE=10
+DEVNS_NETNS_DIR="/run/netns"
+DEVNS_STATE_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr-devns"
 
 devns_validate_id() {
     if ! [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -24,7 +28,12 @@ devns_validate_id() {
 }
 
 devns_ns_id() {
-    echo $(( ($1 - 1) / 10 + 1 ))
+    echo $(( ($1 - 1) / DEVNS_GROUP_SIZE + 1 ))
+}
+
+# Convert group + slot (1-based) to workspace ID
+devns_group_to_ws() {
+    echo $(( ($1 - 1) * DEVNS_GROUP_SIZE + $2 ))
 }
 
 devns_ns_name() {
@@ -38,6 +47,17 @@ devns_ns_ip() {
 devns_subnet() {
     echo "${DEVNS_SUBNET_BASE}.$(devns_ns_id "$1")"
 }
+
+# Returns 0 if the given workspace ID should use a namespace, 1 otherwise.
+# Controlled by DEVNS_WORKSPACES: "all" or comma-separated workspace IDs.
+devns_ws_enabled() {
+    local ws_id="$1"
+    [ "$ws_id" -gt 0 ] 2>/dev/null || return 1
+    [ "$DEVNS_WORKSPACES" = "all" ] && return 0
+    echo ",$DEVNS_WORKSPACES," | grep -q ",${ws_id},"
+}
+
+devns_warn() { echo "hyprflow: $*" >&2; }
 
 devns_get_wan_iface() {
     if [ -n "$DEVNS_WAN_IFACE" ]; then

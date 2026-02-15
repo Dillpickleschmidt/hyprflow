@@ -17,6 +17,11 @@ if [[ ! -f "$MANIFEST_FILE" ]]; then
     exit 0
 fi
 
+if ! jq empty "$MANIFEST_FILE" 2>/dev/null; then
+    warn "Manifest is corrupted. Manual cleanup may be needed."
+    exit 1
+fi
+
 MANIFEST=$(cat "$MANIFEST_FILE")
 
 # ─── Manifest helpers ────────────────────────────────────────
@@ -97,10 +102,17 @@ if m_has_feature "docker"; then
         sudo systemctl restart docker 2>/dev/null || true
         success "Docker: restored from backup"
     elif [[ -f "$DEVNS_DOCKER_DAEMON_JSON" ]] && grep -q 'hypr-devns-runc' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null; then
-        # No backup means we created the file — remove it
-        sudo rm "$DEVNS_DOCKER_DAEMON_JSON"
+        # Remove only hyprflow-specific keys, keep everything else
+        local cleaned
+        cleaned=$(jq 'del(.["default-runtime"], .runtimes.devns) | if .runtimes == {} then del(.runtimes) else . end' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null)
+        if [[ -n "$cleaned" ]] && [[ "$cleaned" != "{}" ]]; then
+            echo "$cleaned" | sudo tee "$DEVNS_DOCKER_DAEMON_JSON" > /dev/null
+            success "Docker: removed devns runtime config"
+        else
+            sudo rm "$DEVNS_DOCKER_DAEMON_JSON"
+            success "Docker: removed daemon.json (was hyprflow-only)"
+        fi
         sudo systemctl restart docker 2>/dev/null || true
-        success "Docker: removed daemon.json"
     fi
 fi
 

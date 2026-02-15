@@ -1,10 +1,12 @@
 #!/bin/bash
-# hypr-devns docker wrapper — isolates compose projects per workspace.
+# hypr-devns docker wrapper — isolates compose projects per workspace group.
 # Injected via PATH from hypr-devns-nsexec when DEVNS_WS is set.
 #
-# 1. Sets COMPOSE_PROJECT_NAME to "<directory>-ws<id>" for independent containers.
+# 1. Sets COMPOSE_PROJECT_NAME to "<directory>-wg<group>" for independent containers.
 # 2. Strips port publishing for up/create/run — ports are redundant in namespaces
 #    and conflict since Docker's port allocator is global.
+
+. /usr/share/hyprflow/lib/devns-common.sh
 
 REAL_DOCKER="$(type -ap docker | grep -v /usr/share/hyprflow | head -1)"
 
@@ -17,7 +19,7 @@ if [ -z "$DEVNS_WS" ] || [[ "${1:-}" != "compose" ]]; then
     exec "$REAL_DOCKER" "$@"
 fi
 
-DEVNS_GROUP=$(( (DEVNS_WS - 1) / 10 + 1 ))
+DEVNS_GROUP="$(devns_ns_id "$DEVNS_WS")"
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd)")-wg${DEVNS_GROUP}}"
 
 shift # "compose"

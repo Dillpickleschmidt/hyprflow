@@ -7,12 +7,21 @@ browser_cmd="$1"
 shift
 
 ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
-group_id=$(( (ws_id - 1) / 10 + 1 ))
+
+# Workspace excluded from namespace isolation — launch browser normally
+if ! devns_ws_enabled "$ws_id"; then
+    exec "$browser_cmd" "$@"
+fi
+
+group_id="$(devns_ns_id "$ws_id")"
 ns="hyprns_${group_id}"
 
 # Ensure namespace exists
-if [ ! -e "/var/run/netns/${ns}" ]; then
-    sudo /usr/bin/hypr-devns-helper create "$group_id" 2>/dev/null
+if [ ! -e "${DEVNS_NETNS_DIR}/${ns}" ]; then
+    if ! sudo /usr/bin/hypr-devns-helper create "$group_id" 2>&1; then
+        devns_warn "namespace creation failed for ws $ws_id, launching browser on host"
+        exec "$browser_cmd" "$@"
+    fi
 fi
 
 profile_dir="$HOME/.config/hyprflow/browsers/${browser_cmd}-wg${group_id}"

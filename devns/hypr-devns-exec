@@ -23,15 +23,20 @@ done
 
 ws_id="$(hyprctl activeworkspace -j | jq -r '.id')"
 
-if [ "$ws_id" -gt 0 ] 2>/dev/null; then
-    ns="$(devns_ns_name "$ws_id")"
-    if [ ! -e "/run/netns/${ns}" ]; then
-        sudo /usr/bin/hypr-devns-helper create "$(devns_ns_id "$ws_id")" 2>/dev/null
+# Workspace excluded from namespace isolation — run directly on host
+if ! devns_ws_enabled "$ws_id"; then
+    exec "$@"
+fi
+
+ns="$(devns_ns_name "$ws_id")"
+if [ ! -e "${DEVNS_NETNS_DIR}/${ns}" ]; then
+    if ! sudo /usr/bin/hypr-devns-helper create "$(devns_ns_id "$ws_id")" 2>&1; then
+        devns_warn "namespace creation failed for ws $ws_id, running on host"
     fi
-    if [ -e "/run/netns/${ns}" ]; then
-        export DEVNS_WS="$ws_id"
-        exec sudo -E /usr/bin/hypr-devns-nsexec "$ns" "$(id -u)" "$(id -g)" "$@"
-    fi
+fi
+if [ -e "${DEVNS_NETNS_DIR}/${ns}" ]; then
+    export DEVNS_WS="$ws_id"
+    exec sudo -E /usr/bin/hypr-devns-nsexec "$ns" "$(id -u)" "$(id -g)" "$@"
 fi
 
 exec "$@"
