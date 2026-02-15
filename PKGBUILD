@@ -4,7 +4,7 @@ pkgrel=1
 pkgdesc="Hyprland workflow tools: group overlay + per-workspace network namespaces"
 arch=('any')
 license=('MIT')
-depends=('hyprland' 'jq' 'socat' 'iproute2' 'iptables' 'python' 'gum')
+depends=('hyprland' 'jq' 'socat' 'iproute2' 'iptables' 'firejail' 'rsync' 'gum')
 optdepends=(
     'python-gobject: group preview widget'
     'gtk4-layer-shell: group preview widget'
@@ -33,17 +33,8 @@ package() {
 
     install -Dm644 "$startdir/devns/lib/devns-common.sh" "$pkgdir/usr/share/hyprflow/lib/devns-common.sh"
 
-    install -Dm755 "$startdir/devns/hypr-devns-proxy" "$pkgdir/usr/share/hyprflow/hypr-devns-proxy"
+    install -Dm755 "$startdir/devns/hypr-devns-browser" "$pkgdir/usr/bin/hypr-devns-browser"
     install -Dm755 "$startdir/devns/bin/docker" "$pkgdir/usr/share/hyprflow/bin/docker"
-
-    install -Dm644 "$startdir/devns/extension/chromium/manifest.json" "$pkgdir/usr/share/hyprflow/extension/chromium/manifest.json"
-    install -Dm644 "$startdir/devns/extension/chromium/background.js" "$pkgdir/usr/share/hyprflow/extension/chromium/background.js"
-    install -Dm644 "$startdir/devns/extension/chromium/cookie-isolate-bridge.js" "$pkgdir/usr/share/hyprflow/extension/chromium/cookie-isolate-bridge.js"
-    install -Dm644 "$startdir/devns/extension/shared/cookie-isolate.js" "$pkgdir/usr/share/hyprflow/extension/chromium/cookie-isolate.js"
-    install -Dm644 "$startdir/devns/extension/firefox/manifest.json" "$pkgdir/usr/share/hyprflow/extension/firefox/manifest.json"
-    install -Dm644 "$startdir/devns/extension/firefox/background.js" "$pkgdir/usr/share/hyprflow/extension/firefox/background.js"
-    install -Dm644 "$startdir/devns/extension/firefox/cookie-isolate-bridge.js" "$pkgdir/usr/share/hyprflow/extension/firefox/cookie-isolate-bridge.js"
-    install -Dm644 "$startdir/devns/extension/shared/cookie-isolate.js" "$pkgdir/usr/share/hyprflow/extension/firefox/cookie-isolate.js"
 
     install -Dm755 "$startdir/notif/hypr-notif-ws" "$pkgdir/usr/bin/hypr-notif-ws"
 }

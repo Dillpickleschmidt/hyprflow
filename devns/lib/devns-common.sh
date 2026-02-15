@@ -9,8 +9,7 @@ DEVNS_DNS="${DEVNS_DNS:-9.9.9.9 1.1.1.1}"
 DEVNS_WAN_IFACE="${DEVNS_WAN_IFACE:-}"
 DEVNS_WORKSPACES="${DEVNS_WORKSPACES:-all}"
 GROUP_OVERLAY="${GROUP_OVERLAY:-true}"
-DEVNS_HOST_APPS="${DEVNS_HOST_APPS:-}"
-DEVNS_PROXY_PORT=18800
+DEVNS_BROWSERS="${DEVNS_BROWSERS:-}"
 DEVNS_SUBNET_BASE="10.200"
 
 devns_validate_id() {
@@ -54,18 +53,6 @@ DEVNS_BINDINGS="$HOME/.config/hypr/bindings.conf"
 DEVNS_ELEPHANT="$HOME/.config/elephant/desktopapplications.toml"
 DEVNS_GHOSTTY_SYSTEM="/usr/share/applications/com.mitchellh.ghostty.desktop"
 DEVNS_GHOSTTY_USER="$HOME/.local/share/applications/com.mitchellh.ghostty.desktop"
-DEVNS_CHROMIUM_EXTENSION_DIR="/usr/share/hyprflow/extension/chromium"
-DEVNS_FIREFOX_EXTENSION_DIR="/usr/share/hyprflow/extension/firefox"
-DEVNS_CHROMIUM_FLAGS="$HOME/.config/chromium-flags.conf"
-DEVNS_HELIUM_FLAGS="$HOME/.config/helium-browser-flags.conf"
-DEVNS_CHROME_FLAGS="$HOME/.config/chrome-flags.conf"
-DEVNS_BRAVE_FLAGS="$HOME/.config/brave-flags.conf"
-DEVNS_VIVALDI_FLAGS="$HOME/.config/vivaldi-stable-flags.conf"
-DEVNS_EDGE_FLAGS="$HOME/.config/microsoft-edge-stable-flags.conf"
-DEVNS_ZEN_POLICIES="/opt/zen-browser-bin/distribution/policies.json"
-DEVNS_FIREFOX_POLICIES="/usr/lib/firefox/distribution/policies.json"
-DEVNS_LIBREWOLF_POLICIES="/usr/lib/librewolf/distribution/policies.json"
-DEVNS_FLOORP_POLICIES="/usr/lib/floorp/distribution/policies.json"
 DEVNS_DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
 
 # Hyprland-mode paths (vanilla Hyprland without Omarchy)

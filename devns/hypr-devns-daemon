@@ -42,22 +42,11 @@ ensure_namespace() {
     fi
 }
 
-PROXY_PID=""
-
-start_proxy() {
-    python3 /usr/share/hyprflow/hypr-devns-proxy &
-    PROXY_PID=$!
-}
-
 update_active_ws() {
     echo "$1" > "${STATE_DIR}/active-ws"
 }
 
 cleanup() {
-    if [ -n "$PROXY_PID" ]; then
-        kill "$PROXY_PID" 2>/dev/null || true
-        wait "$PROXY_PID" 2>/dev/null || true
-    fi
     sudo /usr/bin/hypr-devns-helper destroy-all 2>/dev/null || true
     rm -rf "$STATE_DIR"
 }
@@ -70,8 +59,6 @@ if [ -n "$current_ws" ]; then
     update_active_ws "$current_ws"
     ensure_namespace "$current_ws"
 fi
-
-start_proxy
 
 # Determine Hyprland IPC socket path
 his="$HYPRLAND_INSTANCE_SIGNATURE"

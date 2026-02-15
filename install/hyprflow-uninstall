@@ -60,55 +60,31 @@ if m_has_feature "namespace_isolation"; then
     fi
 fi
 
-# ─── Revert: browser extension ───────────────────────────────
+# ─── Revert: browser firejail sandboxing ─────────────────────
 
-if m_has_feature "browser_extension"; then
-    remove_host_app() {
+if m_has_feature "browser_firejail"; then
+    remove_browser() {
         local cmd="$1"
         local config="$HOME/.config/hypr-devns.conf"
         [[ -f "$config" ]] || return 0
-        grep -q '^DEVNS_HOST_APPS=' "$config" || return 0
-        sed -i "/^DEVNS_HOST_APPS=/ { s/ ${cmd}//; s/${cmd} //; s/${cmd}//; }" "$config"
-    }
-
-    remove_load_extension() {
-        local flags_file="$1"
-        local label="$2"
-        [[ -f "$flags_file" ]] || return 0
-        if ! grep -q "${DEVNS_CHROMIUM_EXTENSION_DIR}" "$flags_file" 2>/dev/null; then return 0; fi
-        sed -i "s|,${DEVNS_CHROMIUM_EXTENSION_DIR}||g; s|${DEVNS_CHROMIUM_EXTENSION_DIR},||g; s|${DEVNS_CHROMIUM_EXTENSION_DIR}||g" "$flags_file"
-        sed -i '/^--load-extension=$/d' "$flags_file"
-        success "${label}: removed extension"
-    }
-
-    remove_firefox_extension() {
-        local label="$1"
-        local cmd="$2"
-        local policies_path
-        policies_path=$(m_get ".paths.${label,,}_policies")
-        if [[ -n "$policies_path" ]] && [[ -f "$policies_path" ]] && grep -q 'hypr-devns@localhost' "$policies_path" 2>/dev/null; then
-            jq 'del(.policies.ExtensionSettings["hypr-devns@localhost"])' "$policies_path" | sudo tee "${policies_path}.tmp" > /dev/null
-            sudo mv "${policies_path}.tmp" "$policies_path"
-            success "${label}: removed extension policy"
-        fi
-        remove_host_app "$cmd"
+        grep -q '^DEVNS_BROWSERS=' "$config" || return 0
+        sed -i "/^DEVNS_BROWSERS=/ { s/ ${cmd}//; s/${cmd} //; s/${cmd}//; }" "$config"
     }
 
     while IFS= read -r browser; do
         case "$browser" in
-            # Chromium-based
-            Chromium) remove_load_extension "$DEVNS_CHROMIUM_FLAGS" "Chromium"; remove_host_app "chromium" ;;
-            Helium)   remove_load_extension "$DEVNS_HELIUM_FLAGS" "Helium"; remove_host_app "helium-browser" ;;
-            Chrome)   remove_load_extension "$DEVNS_CHROME_FLAGS" "Chrome"; remove_host_app "google-chrome-stable" ;;
-            Brave)    remove_load_extension "$DEVNS_BRAVE_FLAGS" "Brave"; remove_host_app "brave" ;;
-            Vivaldi)  remove_load_extension "$DEVNS_VIVALDI_FLAGS" "Vivaldi"; remove_host_app "vivaldi-stable" ;;
-            Edge)     remove_load_extension "$DEVNS_EDGE_FLAGS" "Edge"; remove_host_app "microsoft-edge-stable" ;;
-            # Firefox-based
-            Zen)      remove_firefox_extension "Zen" "zen-browser" ;;
-            Firefox)  remove_firefox_extension "Firefox" "firefox" ;;
-            LibreWolf) remove_firefox_extension "LibreWolf" "librewolf" ;;
-            Floorp)   remove_firefox_extension "Floorp" "floorp" ;;
+            Chromium)  remove_browser "chromium" ;;
+            Helium)    remove_browser "helium-browser" ;;
+            Chrome)    remove_browser "google-chrome-stable" ;;
+            Brave)     remove_browser "brave" ;;
+            Vivaldi)   remove_browser "vivaldi-stable" ;;
+            Edge)      remove_browser "microsoft-edge-stable" ;;
+            Zen)       remove_browser "zen-browser" ;;
+            Firefox)   remove_browser "firefox" ;;
+            LibreWolf) remove_browser "librewolf" ;;
+            Floorp)    remove_browser "floorp" ;;
         esac
+        success "${browser}: removed from DEVNS_BROWSERS"
     done < <(echo "$MANIFEST" | jq -r '.browsers[]? // empty')
 fi
 

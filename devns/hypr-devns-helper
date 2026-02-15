@@ -51,9 +51,13 @@ ns_create() {
     ip netns exec "$ns" ip rule add from all lookup 100 prio 32600
 
     # Redirect traffic arriving on the veth IP to loopback so dev servers
-    # binding to 127.0.0.1 are reachable from the proxy
+    # binding to 127.0.0.1 are reachable from Docker containers in this namespace
     ip netns exec "$ns" sysctl -q net.ipv4.conf.all.route_localnet=1
     ip netns exec "$ns" iptables -t nat -A PREROUTING -d "${subnet}.2" -j DNAT --to-destination 127.0.0.1
+
+    # Disable IPv6 inside the namespace. Dev servers typically bind to 127.0.0.1
+    # only, and Chromium's built-in DNS returns ::1 for localhost which fails.
+    ip netns exec "$ns" sysctl -q net.ipv6.conf.all.disable_ipv6=1
 
     sysctl -q net.ipv4.ip_forward=1
 
@@ -61,22 +65,17 @@ ns_create() {
     iptables -A FORWARD -i "$veth_h" -o "$wan" -j ACCEPT
     iptables -A FORWARD -i "$wan" -o "$veth_h" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
+    # Store WAN interface for cleanup (in /run, not /etc/netns where it would
+    # be spuriously bind-mounted over /etc/wan_iface)
+    mkdir -p /run/hypr-devns
+    echo "$wan" > "/run/hypr-devns/wan_${ns}"
+
+    # DNS config (ip netns exec and firejail --netns auto-mount /etc/netns/<ns>/* over /etc/)
     mkdir -p "/etc/netns/${ns}"
-    echo "$wan" > "/etc/netns/${ns}/wan_iface"
     : > "/etc/netns/${ns}/resolv.conf"
     for dns in $DEVNS_DNS; do
         echo "nameserver $dns" >> "/etc/netns/${ns}/resolv.conf"
     done
-
-    # Force "localhost" to resolve to IPv4 so dev servers bind to 127.0.0.1
-    # (reachable via the DNAT rule above). Two overrides needed:
-    # 1. nsswitch: put "files" first so /etc/hosts is checked before
-    #    systemd-resolved (which hardcodes ::1 for localhost)
-    # 2. hosts: remove localhost from the ::1 line
-    sed '/^hosts:/{s/ files//; s/^hosts:/hosts: files/}' \
-        /etc/nsswitch.conf > "/etc/netns/${ns}/nsswitch.conf"
-    cp /etc/hosts "/etc/netns/${ns}/hosts"
-    sed -i '/^::1/{s/$/ /; s/[[:space:]]/ /g; s/ localhost\.localdomain / /g; s/ localhost / /g; s/  */ /g; s/ $//}' "/etc/netns/${ns}/hosts"
 }
 
 ns_destroy() {
@@ -88,8 +87,8 @@ ns_destroy() {
     local veth_h="veth_h${id}"
     local subnet="${DEVNS_SUBNET_BASE}.${id}"
     local wan
-    if [ -f "/etc/netns/${ns}/wan_iface" ]; then
-        wan="$(cat "/etc/netns/${ns}/wan_iface")"
+    if [ -f "/run/hypr-devns/wan_${ns}" ]; then
+        wan="$(cat "/run/hypr-devns/wan_${ns}")"
     else
         wan="$(devns_get_wan_iface)"
     fi
@@ -109,6 +108,7 @@ ns_destroy() {
     # veth pair is auto-removed when namespace is deleted
 
     rm -rf "/etc/netns/${ns}"
+    rm -f "/run/hypr-devns/wan_${ns}"
 }
 
 ns_destroy_all() {

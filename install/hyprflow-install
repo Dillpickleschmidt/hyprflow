@@ -70,8 +70,8 @@ prompt_ns_addons() {
 
     NS_FEATURES=$(gum choose --no-limit \
         --header "Namespace isolation add-ons:" \
-        --selected "Browser extension,Ghostty terminal support,Docker daemon support" \
-        "Browser extension" \
+        --selected "Browser sandboxing,Ghostty terminal support,Docker daemon support" \
+        "Browser sandboxing" \
         "Ghostty terminal support" \
         "Docker daemon support") || abort
 }
@@ -94,7 +94,7 @@ run_step() {
 
 run_selected_steps() {
     run_step "$CORE_FEATURES" "Network namespace isolation"      step_namespace_isolation
-    run_step "$NS_FEATURES"   "Browser extension"                step_browser_extension
+    run_step "$NS_FEATURES"   "Browser sandboxing"               step_browser_firejail
     run_step "$NS_FEATURES"   "Ghostty terminal support"         step_ghostty
     run_step "$NS_FEATURES"   "Docker daemon support"            step_docker
     run_step "$CORE_FEATURES" "Waybar modifications"             step_waybar

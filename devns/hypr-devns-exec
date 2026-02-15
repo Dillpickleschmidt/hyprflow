@@ -11,11 +11,13 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-# Apps listed in DEVNS_HOST_APPS run on the host (e.g. browsers that use
-# the devns extension+proxy for per-tab namespace routing).
-for _arg in "$@"; do
-    for _app in $DEVNS_HOST_APPS; do
-        [ "$_app" = "$_arg" ] && exec "$@"
+# Browsers are launched via firejail with isolated profiles.
+# The browser command may be wrapped (e.g. "uwsm-app -- helium-browser"),
+# so find the browser arg and pass it (plus any trailing args) to the launcher.
+_args=("$@")
+for _i in "${!_args[@]}"; do
+    for _browser in $DEVNS_BROWSERS; do
+        [ "$_browser" = "${_args[$_i]}" ] && exec hypr-devns-browser "${_args[@]:$_i}"
     done
 done
 
