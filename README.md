@@ -54,7 +54,7 @@ Group 1 (ws 1-10)            Group 2 (ws 11-20)           Group 3 (ws 21-30)
                               Host (NAT / internet)
 ```
 
-Because isolation happens at the network layer, your projects run exactly as they would normally &mdash; same ports, same auth redirects, same cookies, same Docker setup. No rebuilds, no per-project dev configs, no workarounds. You just work in a different workspace group.
+Because isolation happens at the network layer, your projects run exactly as they would normally &mdash; same ports, same auth redirects, same cookies, same localStorage, same Docker setup. No rebuilds, no per-project dev configs, no workarounds. You just work in a different workspace group.
 
 Additional features for [Omarchy](https://github.com/nicknisi/omarchy) users:
 
@@ -104,21 +104,21 @@ hyprflow-install
 
 This walks you through enabling each feature:
 
-| Feature             | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| Namespace isolation | Core daemon + terminal wrapping                 |
-| Browser extension   | Chromium/Firefox localhost routing via proxy    |
-| Docker runtime      | OCI runtime wrapper for container isolation     |
-| Ghostty override    | Disables single-instance mode                   |
-| Workspace groups    | Keybinds for group-based navigation             |
-| Group overlay       | Visual workspace group preview (Omarchy)        |
-| Notifications       | Workspace-numbered notification proxy (Omarchy) |
-| Waybar              | Persistent workspace indicators (Omarchy)       |
+| Feature             | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| Namespace isolation | Core daemon + terminal wrapping                    |
+| Browser sandboxing  | Per-group browser profiles via firejail            |
+| Docker runtime      | OCI runtime wrapper for container isolation        |
+| Ghostty override    | Disables single-instance mode                      |
+| Workspace groups    | Keybinds for group-based navigation                |
+| Group overlay       | Visual workspace group preview (Omarchy)           |
+| Notifications       | Workspace-numbered notification proxy (Omarchy)    |
+| Waybar              | Persistent workspace indicators (Omarchy)          |
 
 Reboot after setup, or restart Hyprland, Docker, and your browsers individually.
 
 > [!IMPORTANT]
-> Docker containers created before installation will need to be re-created. You'll also have to sign in again to your `localhost` tabs since pre-existing `localhost` cookies are not tracked.
+> Docker containers created before installation will need to be re-created. Browser profiles are cloned from your existing profile on first launch per group, preserving login sessions and extensions.
 
 To undo everything: `hyprflow-uninstall` and reboot.
 
@@ -126,7 +126,7 @@ To undo everything: `hyprflow-uninstall` and reboot.
 
 - Hyprland
 - `jq`, `socat`, `iproute2`, `iptables`
-- Python 3
+- `firejail`, `rsync` (browser sandboxing)
 - `gum` (interactive installer)
 - `python-gobject` + `gtk4-layer-shell` (group overlay, optional)
 - `python-dbus` (notifications, optional)
@@ -140,7 +140,8 @@ DEVNS_WORKSPACES=all          # "all" or comma-separated workspace IDs
 DEVNS_DNS="9.9.9.9 1.1.1.1"  # DNS servers inside namespaces
 DEVNS_WAN_IFACE=""            # WAN interface for NAT (auto-detected if empty)
 GROUP_OVERLAY=true            # Enable group overlay widget (requires restart)
-DEVNS_HOST_APPS=""            # Apps that skip namespace (browsers use extension instead)
+DEVNS_BROWSERS=""             # Browsers to sandbox (e.g. "chromium helium-browser firefox")
+DEVNS_SLOTS_PER_GROUP=5       # Workspace slots shown per group in waybar (1-10)
 ```
 
 If WAN auto-detection fails (multiple default routes, VPN), set `DEVNS_WAN_IFACE` explicitly. Check with `ip route show default`.
@@ -154,20 +155,22 @@ The daemon (`hypr-devns-daemon`) listens to Hyprland IPC and lazily creates one 
 - A veth pair connecting it to the host
 - Its own IP (`10.200.<group>.2/24`)
 - NAT rules for outbound internet
-- DNS config and a custom `/etc/hosts` forcing `localhost` to `127.0.0.1`
+- DNS config via `/etc/netns/`
+- IPv6 disabled (dev servers typically bind to `127.0.0.1` only)
 
 `hypr-devns-exec` launches commands inside the current workspace group's namespace. Apps started from the terminal or app launcher enter the namespace automatically.
 
-### Browser integration
+### Browser sandboxing
 
-A single browser process can't be moved between namespaces. Instead, a **browser extension + local proxy** (`hypr-devns-proxy` on port 18800) handles routing at the application layer:
+Browsers are single-instance processes that can't be moved between namespaces. Hyprflow uses **firejail** to launch each browser directly inside the workspace group's network namespace with a separate profile directory:
 
-1. Extension tracks which workspace group each tab belongs to
-2. Extension injects `X-Devns-WS` header on `localhost` requests
-3. Proxy routes the request to the correct namespace IP (`10.200.<group>.2`)
-4. DNAT rule inside the namespace redirects veth IP to loopback
+```
+firejail --noprofile --netns=hyprns_N <browser> --user-data-dir=~/.config/hyprflow/browsers/<browser>-wgN
+```
 
-**Cookie isolation:** Cookies are transparently namespaced with a `_wg{id}_` prefix. The proxy rewrites `Cookie`/`Set-Cookie` HTTP headers, and the extension overrides `document.cookie` in JS. Neither server nor client code ever sees the prefix.
+On first launch per group, the base browser profile is cloned (via `rsync`) with cache and localhost-specific storage excluded. This preserves login sessions, bookmarks, passwords, and extensions while ensuring localStorage, IndexedDB, Service Workers, and cookies are fully isolated per workspace group.
+
+Supported browsers: Chromium, Helium, Chrome, Brave, Vivaldi, Edge, Firefox, LibreWolf, Floorp, Zen.
 
 ### Docker integration
 
@@ -179,17 +182,16 @@ A single browser process can't be moved between namespaces. Instead, a **browser
 
 | App type | Problem                                       | Solution                                              |
 | -------- | --------------------------------------------- | ----------------------------------------------------- |
-| Browsers | Single-instance process, shared across groups | Extension + proxy (application-layer routing)         |
+| Browsers | Single-instance process, shared across groups | Firejail sandboxing with per-group profiles           |
 | Ghostty  | `--gtk-single-instance=true` hardcoded        | Desktop file override disabling single-instance       |
 | Docker   | Daemon starts before workspace context exists | OCI runtime wrapper patches netns at container create |
 
 ## Caveats
 
-- **IPv4 only** &mdash; `localhost` is forced to `127.0.0.1`. Apps relying on `::1` won't work.
-- **HTTP only** &mdash; HTTPS localhost bypasses the proxy entirely, so cookies won't be group-isolated. Use HTTP for local dev.
+- **IPv6 disabled in namespaces** &mdash; Dev servers typically bind to `127.0.0.1` only, but Chromium's built-in DNS resolves `localhost` to both `127.0.0.1` and `::1`. IPv6 is disabled inside namespaces to prevent connection failures.
 - **Docker is global** &mdash; The runtime is registered as the default OCI runtime, affecting all containers. Revert with `hyprflow-uninstall`.
 - **Port publishing stripped** &mdash; `docker compose` `ports:` directives are removed (redundant in namespaces, would conflict globally). Use `docker run -p` directly on the host if you need external access.
-- **Browser cache bleed** &mdash; The browser's back/forward cache is shared across groups, so switching to a `localhost` tab in another group may show stale state from the previous group. A manual refresh clears it. This may be addressed in a future iteration using containerized browser instances (TBD).
+- **Profile sync is one-directional** &mdash; Each browser launch syncs your main browser profile (e.g. `~/.config/chromium`) into the group's copy, so changes like new saved passwords or bookmarks automatically propagate to all groups. Localhost-specific storage stays isolated per group. Non-localhost changes made within a group (e.g. logging into a new site) will be overwritten by your main profile on next launch.
 - **Container state** &mdash; Group mapping is cached in `/run/` (lost on reboot). Containers created before installation need to be recreated.
 
 <details>

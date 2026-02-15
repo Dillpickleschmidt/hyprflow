@@ -67,68 +67,64 @@ case "$browser_cmd" in
         ;;
 esac
 
-# Clone base profile on first launch for this workspace group
-if [ ! -d "$profile_dir" ]; then
-    if [ "$browser_type" = "firefox" ]; then
-        # Find the default profile directory from profiles.ini
-        profiles_ini="${source_profile}/profiles.ini"
-        if [ -f "$profiles_ini" ]; then
-            default_rel=$(awk -F= '/^\[Install/{found=1} found && /^Default=/{print $2; exit}' "$profiles_ini")
-            if [ -n "$default_rel" ]; then
-                source_dir="${source_profile}/${default_rel}"
-            fi
+# Sync base profile into group profile (incremental — only transfers diffs).
+# Localhost-specific storage is excluded to maintain per-group isolation.
+mkdir -p "$profile_dir"
+if [ "$browser_type" = "firefox" ]; then
+    # Find the default profile directory from profiles.ini
+    profiles_ini="${source_profile}/profiles.ini"
+    if [ -f "$profiles_ini" ]; then
+        default_rel=$(awk -F= '/^\[Install/{found=1} found && /^Default=/{print $2; exit}' "$profiles_ini")
+        if [ -n "$default_rel" ]; then
+            source_dir="${source_profile}/${default_rel}"
         fi
-        if [ -z "$source_dir" ] || [ ! -d "$source_dir" ]; then
-            # Fallback: find the *.default-release profile
-            source_dir=$(find "$source_profile" -maxdepth 1 -name '*.default-release' -type d | head -1)
-        fi
-        if [ -d "$source_dir" ]; then
-            rsync -a \
-                --exclude='lock' \
-                --exclude='.parentlock' \
-                --exclude='cache2/' \
-                --exclude='OfflineCache/' \
-                --exclude='startupCache/' \
-                --exclude='thumbnails/' \
-                --exclude='safebrowsing/' \
-                --exclude='storage/temporary/' \
-                --exclude='minidumps/' \
-                --exclude='compatibility.ini' \
-                --exclude='extensions.json' \
-                --exclude='addonStartup.json.lz4' \
-                --exclude='storage/default/http+++localhost*' \
-                --exclude='serviceworker*' \
-                "$source_dir/" "$profile_dir/"
-        else
-            mkdir -p "$profile_dir"
-        fi
-    else
-        # Chromium-based
-        if [ -d "$source_profile" ]; then
-            rsync -a \
-                --exclude='SingletonLock' \
-                --exclude='SingletonCookie' \
-                --exclude='SingletonSocket' \
-                --exclude='Cache/' \
-                --exclude='Code Cache/' \
-                --exclude='GPUCache/' \
-                --exclude='ShaderCache/' \
-                --exclude='GrShaderCache/' \
-                --exclude='Service Worker/' \
-                --exclude='CrashpadMetrics-active.pma' \
-                --exclude='Crashpad/' \
-                --exclude='BrowserMetrics/' \
-                --exclude='crash_count' \
-                --exclude='*/Service Worker/' \
-                --exclude='*/Cache/' \
-                --exclude='*/Code Cache/' \
-                --exclude='*/GPUCache/' \
-                --exclude='*/IndexedDB/*http_localhost*' \
-                --exclude='*/Local Storage/leveldb/*http_localhost*' \
-                "$source_profile/" "$profile_dir/"
-        else
-            mkdir -p "$profile_dir"
-        fi
+    fi
+    if [ -z "$source_dir" ] || [ ! -d "$source_dir" ]; then
+        # Fallback: find the *.default-release profile
+        source_dir=$(find "$source_profile" -maxdepth 1 -name '*.default-release' -type d | head -1)
+    fi
+    if [ -d "$source_dir" ]; then
+        rsync -a \
+            --exclude='lock' \
+            --exclude='.parentlock' \
+            --exclude='cache2/' \
+            --exclude='OfflineCache/' \
+            --exclude='startupCache/' \
+            --exclude='thumbnails/' \
+            --exclude='safebrowsing/' \
+            --exclude='storage/temporary/' \
+            --exclude='minidumps/' \
+            --exclude='compatibility.ini' \
+            --exclude='extensions.json' \
+            --exclude='addonStartup.json.lz4' \
+            --exclude='storage/default/http+++localhost*' \
+            --exclude='serviceworker*' \
+            "$source_dir/" "$profile_dir/"
+    fi
+else
+    # Chromium-based
+    if [ -d "$source_profile" ]; then
+        rsync -a \
+            --exclude='SingletonLock' \
+            --exclude='SingletonCookie' \
+            --exclude='SingletonSocket' \
+            --exclude='Cache/' \
+            --exclude='Code Cache/' \
+            --exclude='GPUCache/' \
+            --exclude='ShaderCache/' \
+            --exclude='GrShaderCache/' \
+            --exclude='Service Worker/' \
+            --exclude='CrashpadMetrics-active.pma' \
+            --exclude='Crashpad/' \
+            --exclude='BrowserMetrics/' \
+            --exclude='crash_count' \
+            --exclude='*/Service Worker/' \
+            --exclude='*/Cache/' \
+            --exclude='*/Code Cache/' \
+            --exclude='*/GPUCache/' \
+            --exclude='*/IndexedDB/*http_localhost*' \
+            --exclude='*/Local Storage/leveldb/*http_localhost*' \
+            "$source_profile/" "$profile_dir/"
     fi
 fi
 
