@@ -9,6 +9,7 @@ optdepends=(
     'python-gobject: group preview widget'
     'gtk4-layer-shell: group preview widget'
     'python-dbus: workspace numbered notifications'
+    'grim: group screenshot thumbnails'
 )
 backup=('etc/hypr-devns.conf')
 

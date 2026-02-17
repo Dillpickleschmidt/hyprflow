@@ -20,6 +20,7 @@ CDLL("libgtk4-layer-shell.so")
 import fcntl
 import json
 import os
+import pathlib
 import signal
 import socket
 import struct
@@ -28,13 +29,18 @@ import subprocess
 import gi
 
 gi.require_version("Gdk", "4.0")
+gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gio", "2.0")
 gi.require_version("GioUnix", "2.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 
-from gi.repository import Gdk, GLib, Gio, GioUnix, Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, GLib, Gio, GioUnix, Gtk, Pango
 from gi.repository import Gtk4LayerShell as LayerShell
+
+THUMB_DIR = pathlib.Path(
+    os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+) / "hyprflow-thumbs"
 
 EV_KEY = 0x01
 EVENT_SIZE = 24
@@ -77,7 +83,7 @@ def build_icon_map():
 def get_workspace_group_windows():
     workspace = hyprctl_json("activeworkspace")
     if not workspace:
-        return None, None, {}
+        return None, None, None, {}
 
     ws_id = workspace.get("id", 1)
     active_group_id = (ws_id - 1) // 10 + 1
@@ -104,7 +110,7 @@ def get_workspace_group_windows():
             key=lambda c: (c.get("workspace", {}).get("id", 0), c.get("title", ""))
         )
 
-    return active_address, active_group_id, groups
+    return active_address, active_group_id, ws_id, groups
 
 
 def load_css():
@@ -231,12 +237,14 @@ class GroupOverlay(Gtk.Application):
     def _show(self):
         self._active = True
         self._last_key = None
-        active_addr, active_group_id, groups = get_workspace_group_windows()
+        active_addr, active_group_id, active_ws_id, groups = get_workspace_group_windows()
         if not groups:
             self._active = False
             if self.window:
                 self.window.set_visible(False)
             return True
+
+        self._capture_thumb(active_ws_id)
 
         if not self.window:
             self._create_window()
@@ -251,6 +259,42 @@ class GroupOverlay(Gtk.Application):
             self.window.present()
         return True
 
+    def _capture_thumb(self, ws_id):
+        THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = str(THUMB_DIR / f"ws-{ws_id}.jpg.tmp")
+        try:
+            proc = Gio.Subprocess.new(
+                ["grim", "-t", "jpeg", "-q", "50", "-s", "0.25", tmp],
+                Gio.SubprocessFlags.STDERR_SILENCE,
+            )
+        except GLib.Error:
+            return
+        proc.wait_async(None, self._on_capture_done, ws_id)
+
+    def _on_capture_done(self, proc, result, ws_id):
+        try:
+            proc.wait_finish(result)
+        except GLib.Error:
+            return
+        if proc.get_exit_status() != 0:
+            return
+        tmp = THUMB_DIR / f"ws-{ws_id}.jpg.tmp"
+        final = THUMB_DIR / f"ws-{ws_id}.jpg"
+        try:
+            tmp.rename(final)
+        except OSError:
+            return
+        # Clean up thumbnails from other workspaces in the same group
+        group_id = (ws_id - 1) // 10 + 1
+        group_start = (group_id - 1) * 10 + 1
+        for other_ws in range(group_start, group_start + 10):
+            if other_ws != ws_id:
+                old = THUMB_DIR / f"ws-{other_ws}.jpg"
+                old.unlink(missing_ok=True)
+        if self._active:
+            self._last_key = None
+            self._refresh()
+
     def _hide(self):
         self._active = False
         if self.window:
@@ -258,7 +302,7 @@ class GroupOverlay(Gtk.Application):
         return True
 
     def _refresh(self):
-        active_addr, active_group_id, groups = get_workspace_group_windows()
+        active_addr, active_group_id, active_ws_id, groups = get_workspace_group_windows()
         if not groups:
             return True
         if not self.window:
@@ -347,7 +391,7 @@ class GroupOverlay(Gtk.Application):
 
             header = Gtk.Label(label=f"Group {group_id}")
             header.add_css_class("group-header")
-            header.set_xalign(0)
+            header.set_xalign(0.5)
             if group_id == active_group_id:
                 header.add_css_class("active-group")
             section.append(header)
@@ -365,43 +409,133 @@ class GroupOverlay(Gtk.Application):
                 item_box.append(label)
                 section.append(item_box)
             else:
+                # Group windows by workspace ID (already sorted by ws_id)
+                ws_groups = {}
                 for win in groups[group_id]:
-                    item_box = Gtk.Box(
-                        orientation=Gtk.Orientation.HORIZONTAL, spacing=10
-                    )
-                    item_box.add_css_class("item-box")
+                    wid = win.get("workspace", {}).get("id", 0)
+                    ws_groups.setdefault(wid, []).append(win)
 
-                    if win["address"] == active_addr:
-                        item_box.add_css_class("active")
+                # Find which workspace has a thumbnail (at most one per group)
+                thumb_ws_id = None
+                thumb_path = None
+                group_start = (group_id - 1) * 10 + 1
+                for wid in range(group_start, group_start + 10):
+                    p = THUMB_DIR / f"ws-{wid}.jpg"
+                    if p.exists():
+                        thumb_ws_id = wid
+                        thumb_path = p
+                        break
 
-                    image = Gtk.Image()
-                    image.add_css_class("item-image")
-                    icon_name = self._resolve_icon(win["class"])
-                    if icon_name and icon_theme.has_icon(icon_name):
-                        image.set_from_icon_name(icon_name)
+                for wid in sorted(ws_groups):
+                    is_thumb_ws = thumb_path and wid == thumb_ws_id
+                    ws_wins = ws_groups[wid]
+
+                    if is_thumb_ws:
+                        grid = Gtk.Grid()
+                        grid.set_column_spacing(10)
+                        grid.set_row_spacing(0)
+                        grid.add_css_class("item-box")
+
+                        has_active = any(
+                            w["address"] == active_addr for w in ws_wins
+                        )
+                        if has_active:
+                            grid.add_css_class("active")
+                        else:
+                            grid.add_css_class("last-active-ws")
+
+                        for row_idx, win in enumerate(ws_wins):
+                            image = Gtk.Image()
+                            image.add_css_class("item-image")
+                            icon_name = self._resolve_icon(win["class"])
+                            if icon_name and icon_theme.has_icon(icon_name):
+                                image.set_from_icon_name(icon_name)
+                            else:
+                                image.set_from_icon_name(
+                                    "application-x-executable"
+                                )
+                            image.set_valign(Gtk.Align.CENTER)
+                            grid.attach(image, 0, row_idx, 1, 1)
+
+                            raw_title = win.get("title", "")
+                            if len(raw_title) > 70:
+                                raw_title = raw_title[:70] + "..."
+                            title = Gtk.Label(label=raw_title)
+                            title.add_css_class("item-text")
+                            title.set_ellipsize(Pango.EllipsizeMode.END)
+                            title.set_hexpand(True)
+                            title.set_xalign(0)
+                            title.set_valign(Gtk.Align.CENTER)
+                            grid.attach(title, 1, row_idx, 1, 1)
+
+                            ws_num = win.get("workspace", {}).get("id", 0)
+                            slot = ws_num - (group_id - 1) * 10
+                            number = Gtk.Label(label=str(slot))
+                            number.add_css_class("item-number")
+                            number.set_valign(Gtk.Align.CENTER)
+                            grid.attach(number, 3, row_idx, 1, 1)
+
+                        try:
+                            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                                str(thumb_path), -1, 120, True
+                            )
+                            _, png_data = pixbuf.save_to_bufferv("png", [], [])
+                            texture = Gdk.Texture.new_from_bytes(
+                                GLib.Bytes.new(png_data)
+                            )
+                            picture = Gtk.Picture.new_for_paintable(texture)
+                            picture.set_can_shrink(False)
+                            picture.set_hexpand(False)
+                            picture.set_vexpand(False)
+                            picture.set_valign(Gtk.Align.CENTER)
+                            picture.add_css_class("ws-thumbnail")
+                            grid.attach(picture, 2, 0, 1, len(ws_wins))
+                        except GLib.Error:
+                            pass
+
+                        section.append(grid)
                     else:
-                        image.set_from_icon_name("application-x-executable")
-                    item_box.append(image)
-
-                    raw_title = win.get("title", "")
-                    if len(raw_title) > 70:
-                        raw_title = raw_title[:70] + "..."
-                    title = Gtk.Label(label=raw_title)
-                    title.add_css_class("item-text")
-                    title.set_ellipsize(Pango.EllipsizeMode.NONE)
-                    title.set_hexpand(True)
-                    title.set_xalign(0)
-                    item_box.append(title)
-
-                    ws_id = win.get("workspace", {}).get("id", 0)
-                    slot = ws_id - (group_id - 1) * 10
-                    number = Gtk.Label(label=str(slot))
-                    number.add_css_class("item-number")
-                    item_box.append(number)
-
-                    section.append(item_box)
+                        for win in ws_wins:
+                            item_box = self._make_window_row(
+                                win, active_addr, group_id, icon_theme
+                            )
+                            section.append(item_box)
 
             self.groups_box.append(section)
+
+    def _make_window_row(self, win, active_addr, group_id, icon_theme):
+        item_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        item_box.add_css_class("item-box")
+
+        if win["address"] == active_addr:
+            item_box.add_css_class("active")
+
+        image = Gtk.Image()
+        image.add_css_class("item-image")
+        icon_name = self._resolve_icon(win["class"])
+        if icon_name and icon_theme.has_icon(icon_name):
+            image.set_from_icon_name(icon_name)
+        else:
+            image.set_from_icon_name("application-x-executable")
+        item_box.append(image)
+
+        raw_title = win.get("title", "")
+        if len(raw_title) > 70:
+            raw_title = raw_title[:70] + "..."
+        title = Gtk.Label(label=raw_title)
+        title.add_css_class("item-text")
+        title.set_ellipsize(Pango.EllipsizeMode.NONE)
+        title.set_hexpand(True)
+        title.set_xalign(0)
+        item_box.append(title)
+
+        ws_id = win.get("workspace", {}).get("id", 0)
+        slot = ws_id - (group_id - 1) * 10
+        number = Gtk.Label(label=str(slot))
+        number.add_css_class("item-number")
+        item_box.append(number)
+
+        return item_box
 
     def _resolve_icon(self, app_class):
         if not app_class or not self.icon_map:

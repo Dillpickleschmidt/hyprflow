@@ -52,3 +52,14 @@
   opacity: 1.0;
   color: @selected-text;
 }
+
+.ws-thumbnail {
+  border-radius: 4px;
+  opacity: 0.85;
+  margin: 4px 8px 4px 0;
+}
+
+.last-active-ws {
+  background: alpha(@selected-text, 0.08);
+  border-radius: 4px;
+}
