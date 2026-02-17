@@ -28,6 +28,15 @@ MAKO_IFACE = "fr.emersion.Mako"
 MAKO_PATH = "/fr/emersion/Mako"
 BUS_NAME = "org.freedesktop.Notifications"
 
+GROUP_SIZE = 10
+
+
+def format_workspace_label(ws_id):
+    """Convert raw workspace ID to [group-slot] format (e.g. 11 -> [2-1])."""
+    group = (ws_id - 1) // GROUP_SIZE + 1
+    slot = ws_id - (group - 1) * GROUP_SIZE
+    return f"[{group}-{slot}]"
+
 
 def get_workspace_for_pid(pid):
     try:
@@ -64,7 +73,7 @@ class NotifProxy(dbus.service.Object):
                 ))
                 ws = get_workspace_for_pid(pid)
                 if ws is not None:
-                    summary = f"[{ws}] {summary}"
+                    summary = f"{format_workspace_label(ws)} {summary}"
             except Exception:
                 pass
         return self._mako.Notify(
