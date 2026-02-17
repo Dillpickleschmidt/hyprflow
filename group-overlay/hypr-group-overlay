@@ -466,6 +466,7 @@ class GroupOverlay(Gtk.Application):
                             title.set_wrap(True)
                             title.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
                             title.set_hexpand(True)
+                            title.set_size_request(300, -1)
                             title.set_xalign(0)
                             title.set_valign(Gtk.Align.CENTER)
                             grid.attach(title, 1, row_idx, 1, 1)
