@@ -378,7 +378,7 @@ class GroupOverlay(Gtk.Application):
         wrapper.add_css_class("overlay-wrapper")
         self.window.set_child(wrapper)
 
-        self.groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         wrapper.append(self.groups_box)
 
     def _populate_items(self, active_addr, active_group_id, groups):
@@ -386,7 +386,7 @@ class GroupOverlay(Gtk.Application):
         icon_theme = Gtk.IconTheme.get_for_display(display)
 
         for group_id in sorted(groups):
-            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             section.add_css_class("group-section")
 
             header = Gtk.Label(label=f"Group {group_id}")
@@ -435,6 +435,7 @@ class GroupOverlay(Gtk.Application):
                         grid.set_column_spacing(10)
                         grid.set_row_spacing(0)
                         grid.add_css_class("item-box")
+                        grid.add_css_class("thumb-row")
 
                         has_active = any(
                             w["address"] == active_addr for w in ws_wins
@@ -458,11 +459,12 @@ class GroupOverlay(Gtk.Application):
                             grid.attach(image, 0, row_idx, 1, 1)
 
                             raw_title = win.get("title", "")
-                            if len(raw_title) > 70:
-                                raw_title = raw_title[:70] + "..."
+                            if len(raw_title) > 80:
+                                raw_title = raw_title[:80] + "..."
                             title = Gtk.Label(label=raw_title)
                             title.add_css_class("item-text")
-                            title.set_ellipsize(Pango.EllipsizeMode.END)
+                            title.set_wrap(True)
+                            title.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
                             title.set_hexpand(True)
                             title.set_xalign(0)
                             title.set_valign(Gtk.Align.CENTER)
@@ -520,8 +522,8 @@ class GroupOverlay(Gtk.Application):
         item_box.append(image)
 
         raw_title = win.get("title", "")
-        if len(raw_title) > 70:
-            raw_title = raw_title[:70] + "..."
+        if len(raw_title) > 80:
+            raw_title = raw_title[:80] + "..."
         title = Gtk.Label(label=raw_title)
         title.add_css_class("item-text")
         title.set_ellipsize(Pango.EllipsizeMode.NONE)

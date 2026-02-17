@@ -1,17 +1,17 @@
 * {
   all: unset;
   font-family: monospace;
-  font-size: 18px;
+  font-size: 14px;
   color: @text;
 }
 
 .overlay-wrapper {
   background: @base;
-  padding: 20px;
+  padding: 12px;
 }
 
 .item-box {
-  padding: 10px 14px;
+  padding: 4px 14px;
 }
 
 .item-box:hover {
@@ -27,8 +27,8 @@
 }
 
 .item-image {
-  margin-right: 14px;
-  -gtk-icon-size: 32px;
+  margin-right: 10px;
+  -gtk-icon-size: 24px;
   -gtk-icon-transform: scale(0.9);
 }
 
@@ -39,11 +39,11 @@
 
 .group-section + .group-section {
   border-top: 1px solid alpha(@text, 0.1);
-  padding-top: 8px;
+  padding-top: 4px;
 }
 
 .group-header {
-  padding: 6px 14px;
+  padding: 4px 14px;
   opacity: 0.5;
   font-size: 14px;
 }
@@ -51,6 +51,15 @@
 .group-header.active-group {
   opacity: 1.0;
   color: @selected-text;
+}
+
+.thumb-row * {
+  font-size: 16px;
+}
+
+.thumb-row .item-image {
+  -gtk-icon-size: 32px;
+  margin-right: 14px;
 }
 
 .ws-thumbnail {
