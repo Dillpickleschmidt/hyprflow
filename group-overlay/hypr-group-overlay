@@ -29,13 +29,13 @@ import subprocess
 import gi
 
 gi.require_version("Gdk", "4.0")
-gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gio", "2.0")
 gi.require_version("GioUnix", "2.0")
+gi.require_version("Graphene", "1.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 
-from gi.repository import Gdk, GdkPixbuf, GLib, Gio, GioUnix, Gtk, Pango
+from gi.repository import Gdk, GLib, Gio, GioUnix, Graphene, Gtk, Pango
 from gi.repository import Gtk4LayerShell as LayerShell
 
 THUMB_DIR = pathlib.Path(
@@ -49,16 +49,30 @@ EVIOCGKEY = 0x80604518
 EVIOCGBIT = lambda ev_type, size: 0x80004520 | (size << 16) | ev_type
 
 
+HYPR_SOCK_DIR = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+    "hypr",
+    os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""),
+)
+
+
 def hyprctl_json(command):
+    """Query Hyprland via the command socket."""
+    sock_path = os.path.join(HYPR_SOCK_DIR, ".socket.sock")
     try:
-        result = subprocess.run(
-            ["hyprctl", command, "-j"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        return json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        sock.connect(sock_path)
+        sock.sendall(f"j/{command}".encode())
+        chunks = []
+        while True:
+            data = sock.recv(8192)
+            if not data:
+                break
+            chunks.append(data)
+        sock.close()
+        return json.loads(b"".join(chunks))
+    except (OSError, json.JSONDecodeError, ValueError):
         return None
 
 
@@ -88,20 +102,19 @@ def get_workspace_group_windows():
     ws_id = workspace.get("id", 1)
     active_group_id = (ws_id - 1) // 10 + 1
 
-    active = hyprctl_json("activewindow")
-    active_address = active.get("address") if active else None
-
     clients = hyprctl_json("clients") or []
 
+    active_address = None
     groups = {}
     for client in clients:
         cws_id = client.get("workspace", {}).get("id", 0)
         if cws_id <= 0:
             continue
+        if cws_id == ws_id and client.get("focusHistoryID") == 0:
+            active_address = client.get("address")
         group_id = (cws_id - 1) // 10 + 1
         groups.setdefault(group_id, []).append(client)
 
-    # Always include the active group
     if active_group_id not in groups:
         groups[active_group_id] = []
 
@@ -151,9 +164,7 @@ def load_css():
 
 
 def connect_event_socket():
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
-    sock_path = os.path.join(runtime_dir, "hypr", signature, ".socket2.sock")
+    sock_path = os.path.join(HYPR_SOCK_DIR, ".socket2.sock")
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(sock_path)
@@ -211,6 +222,8 @@ class GroupOverlay(Gtk.Application):
         self._active = False
         self._kb_fds = []
         self._last_key = None
+        self._active_widget = None
+        self._icon_cache = {}
 
     def do_activate(self):
         self.hold()
@@ -253,7 +266,7 @@ class GroupOverlay(Gtk.Application):
             self.groups_box.remove(child)
 
         self._populate_items(active_addr, active_group_id, groups)
-        self.window.set_default_size(1, 1)
+        self._resize_to_content()
 
         if not self.window.get_visible():
             self.window.present()
@@ -316,7 +329,7 @@ class GroupOverlay(Gtk.Application):
         while child := self.groups_box.get_first_child():
             self.groups_box.remove(child)
         self._populate_items(active_addr, active_group_id, groups)
-        self.window.set_default_size(1, 1)
+        self._resize_to_content()
         return True
 
     def _quit(self):
@@ -378,10 +391,56 @@ class GroupOverlay(Gtk.Application):
         wrapper.add_css_class("overlay-wrapper")
         self.window.set_child(wrapper)
 
+        self._scrolled = Gtk.ScrolledWindow()
+        self._scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        # Determine monitor height for max cap
+        self._monitor_height = 1080
+        display = Gdk.Display.get_default()
+        monitors = display.get_monitors()
+        if monitors.get_n_items() > 0:
+            monitor = monitors.get_item(0)
+            self._monitor_height = monitor.get_geometry().height
+
+        wrapper.append(self._scrolled)
+
         self.groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        wrapper.append(self.groups_box)
+        self._scrolled.set_child(self.groups_box)
+
+    def _resize_to_content(self):
+        """Size the scrolled window to fit content, capped at monitor height."""
+        _, natural_h, _, _ = self.groups_box.measure(Gtk.Orientation.VERTICAL, -1)
+        # Account for wrapper padding (12px top + 12px bottom from CSS)
+        total = natural_h + 24
+        height = min(total, self._monitor_height)
+        self._scrolled.set_size_request(-1, height)
+        # Defer scroll until layout is complete
+        if self._active_widget:
+            GLib.idle_add(self._scroll_to_active)
+
+    def _scroll_to_active(self):
+        """Scroll the active row into view."""
+        if not self._active_widget or not self._scrolled:
+            return False
+        success, point = self._active_widget.compute_point(
+            self.groups_box, Graphene.Point()
+        )
+        if not success:
+            return False
+        adj = self._scrolled.get_vadjustment()
+        widget_y = point.y
+        widget_h = self._active_widget.get_height()
+        page_size = adj.get_page_size()
+        current = adj.get_value()
+        # Scroll only if the active widget is outside the visible area
+        if widget_y < current:
+            adj.set_value(widget_y)
+        elif widget_y + widget_h > current + page_size:
+            adj.set_value(widget_y + widget_h - page_size)
+        return False
 
     def _populate_items(self, active_addr, active_group_id, groups):
+        self._active_widget = None
         display = Gdk.Display.get_default()
         icon_theme = Gtk.IconTheme.get_for_display(display)
 
@@ -442,19 +501,16 @@ class GroupOverlay(Gtk.Application):
                         )
                         if has_active:
                             grid.add_css_class("active")
+                            self._active_widget = grid
                         else:
                             grid.add_css_class("last-active-ws")
 
                         for row_idx, win in enumerate(ws_wins):
                             image = Gtk.Image()
                             image.add_css_class("item-image")
-                            icon_name = self._resolve_icon(win["class"])
-                            if icon_name and icon_theme.has_icon(icon_name):
-                                image.set_from_icon_name(icon_name)
-                            else:
-                                image.set_from_icon_name(
-                                    "application-x-executable"
-                                )
+                            image.set_from_icon_name(
+                                self._get_icon_name(win["class"], icon_theme)
+                            )
                             image.set_valign(Gtk.Align.CENTER)
                             grid.attach(image, 0, row_idx, 1, 1)
 
@@ -479,15 +535,13 @@ class GroupOverlay(Gtk.Application):
                             grid.attach(number, 3, row_idx, 1, 1)
 
                         try:
-                            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                                str(thumb_path), -1, 120, True
-                            )
-                            _, png_data = pixbuf.save_to_bufferv("png", [], [])
-                            texture = Gdk.Texture.new_from_bytes(
-                                GLib.Bytes.new(png_data)
+                            texture = Gdk.Texture.new_from_filename(
+                                str(thumb_path)
                             )
                             picture = Gtk.Picture.new_for_paintable(texture)
-                            picture.set_can_shrink(False)
+                            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+                            picture.set_can_shrink(True)
+                            picture.set_size_request(-1, 120)
                             picture.set_hexpand(False)
                             picture.set_vexpand(False)
                             picture.set_valign(Gtk.Align.CENTER)
@@ -512,14 +566,11 @@ class GroupOverlay(Gtk.Application):
 
         if win["address"] == active_addr:
             item_box.add_css_class("active")
+            self._active_widget = item_box
 
         image = Gtk.Image()
         image.add_css_class("item-image")
-        icon_name = self._resolve_icon(win["class"])
-        if icon_name and icon_theme.has_icon(icon_name):
-            image.set_from_icon_name(icon_name)
-        else:
-            image.set_from_icon_name("application-x-executable")
+        image.set_from_icon_name(self._get_icon_name(win["class"], icon_theme))
         item_box.append(image)
 
         raw_title = win.get("title", "")
@@ -550,6 +601,17 @@ class GroupOverlay(Gtk.Application):
             if key in lower or lower in key:
                 return val
         return None
+
+    def _get_icon_name(self, app_class, icon_theme):
+        if app_class in self._icon_cache:
+            return self._icon_cache[app_class]
+        icon_name = self._resolve_icon(app_class)
+        if icon_name and icon_theme.has_icon(icon_name):
+            result = icon_name
+        else:
+            result = "application-x-executable"
+        self._icon_cache[app_class] = result
+        return result
 
 
 PID_FILE = os.path.join(

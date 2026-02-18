@@ -1,4 +1,13 @@
-* {
+.overlay-wrapper,
+.overlay-wrapper label,
+.overlay-wrapper image,
+.group-section,
+.group-header,
+.item-box,
+.item-text,
+.item-image,
+.item-number,
+.ws-thumbnail {
   all: unset;
   font-family: monospace;
   font-size: 14px;
@@ -71,4 +80,14 @@
 .last-active-ws {
   background: alpha(@selected-text, 0.08);
   border-radius: 4px;
+}
+
+scrollbar slider {
+  background: alpha(@text, 0.3);
+  border-radius: 4px;
+  min-width: 4px;
+}
+
+scrollbar slider:hover {
+  background: alpha(@text, 0.5);
 }
