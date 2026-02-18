@@ -28,10 +28,9 @@ Built in response to Theo's [_Agentic Coding Has A HUGE Problem_](https://www.yo
 ---
 
 <p align="center">
-  <em>Demo video coming soon</em>
-  <!-- <a href="https://www.youtube.com/watch?v=TODO">
-    <img src="https://img.youtube.com/vi/TODO/maxresdefault.jpg" alt="Hyprflow Demo" width="720" />
-  </a> -->
+  <a href="https://youtu.be/-yLSomG0_vU">
+    <img src="assets/demo-thumb.jpg" alt="Hyprflow Demo" width="720" />
+  </a>
 </p>
 
 ---
