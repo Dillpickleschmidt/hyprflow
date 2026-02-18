@@ -23,7 +23,7 @@ Okay, DONE!
 
 Built in response to Theo's [_Agentic Coding Has A HUGE Problem_](https://www.youtube.com/watch?v=YVq28OTPCKw), Hyprflow introduces workspace groups for Hyprland &mdash; each group gets its own network namespace with its own `localhost`. No more port collisions, cookie conflicts, or terminal tab chaos.
 
-[Read the full write-up &rarr;](https://example.com/TODO)
+[Read the full write-up &rarr;](https://dylankuzmick.com/blog/hyprflow)
 
 ---
 
