@@ -103,16 +103,16 @@ hyprflow-install
 
 This walks you through enabling each feature:
 
-| Feature             | Description                                        |
-| ------------------- | -------------------------------------------------- |
-| Namespace isolation | Core daemon + terminal wrapping                    |
-| Browser sandboxing  | Per-group browser profiles via firejail            |
-| Docker runtime      | OCI runtime wrapper for container isolation        |
-| Ghostty override    | Disables single-instance mode                      |
-| Workspace groups    | Keybinds for group-based navigation                |
-| Group overlay       | Visual workspace group preview (Omarchy)           |
-| Notifications       | Workspace-numbered notification proxy (Omarchy)    |
-| Waybar              | Persistent workspace indicators (Omarchy)          |
+| Feature             | Description                                     |
+| ------------------- | ----------------------------------------------- |
+| Namespace isolation | Core daemon + terminal wrapping                 |
+| Browser sandboxing  | Per-group browser profiles via firejail         |
+| Docker runtime      | OCI runtime wrapper for container isolation     |
+| Ghostty override    | Disables single-instance mode                   |
+| Workspace groups    | Keybinds for group-based navigation             |
+| Group overlay       | Visual workspace group preview (Omarchy)        |
+| Notifications       | Workspace-numbered notification proxy (Omarchy) |
+| Waybar              | Persistent workspace indicators (Omarchy)       |
 
 Reboot after setup, or restart Hyprland, Docker, and your browsers individually.
 
@@ -135,13 +135,16 @@ To undo everything: `hyprflow-uninstall` and reboot.
 Defaults live at `/etc/hypr-devns.conf`. Override per-user at `~/.config/hypr-devns.conf`:
 
 ```bash
-DEVNS_WORKSPACES=all          # "all" or comma-separated workspace IDs
+DEVNS_EXCLUDE_GROUPS="1"        # Groups to exclude from isolation (e.g. "1,3")
 DEVNS_DNS="9.9.9.9 1.1.1.1"  # DNS servers inside namespaces
 DEVNS_WAN_IFACE=""            # WAN interface for NAT (auto-detected if empty)
 GROUP_OVERLAY=true            # Enable group overlay widget (requires restart)
 DEVNS_BROWSERS=""             # Browsers to sandbox (e.g. "chromium helium-browser firefox")
 DEVNS_SLOTS_PER_GROUP=5       # Workspace slots shown per group in waybar (1-10)
 ```
+
+> [!IMPORTANT]
+> Group 1 is not isolated by default. This will act as the base for browsers in other namespaces (auth status, bookmarks, etc.). If you want an account to be logged in on every future instance (e.g. GitHub, Google, etc.), do it here. You can choose another group if you'd like (described below).
 
 If WAN auto-detection fails (multiple default routes, VPN), set `DEVNS_WAN_IFACE` explicitly. Check with `ip route show default`.
 

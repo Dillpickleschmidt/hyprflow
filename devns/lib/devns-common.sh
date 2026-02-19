@@ -7,7 +7,8 @@
 
 DEVNS_DNS="${DEVNS_DNS:-9.9.9.9 1.1.1.1}"
 DEVNS_WAN_IFACE="${DEVNS_WAN_IFACE:-}"
-DEVNS_WORKSPACES="${DEVNS_WORKSPACES:-all}"
+DEVNS_EXCLUDE_GROUPS="${DEVNS_EXCLUDE_GROUPS:-}"
+[ -n "${DEVNS_WORKSPACES+x}" ] && devns_warn "DEVNS_WORKSPACES is deprecated — use DEVNS_EXCLUDE_GROUPS instead"
 GROUP_OVERLAY="${GROUP_OVERLAY:-true}"
 DEVNS_BROWSERS="${DEVNS_BROWSERS:-}"
 DEVNS_SLOTS_PER_GROUP="${DEVNS_SLOTS_PER_GROUP:-5}"
@@ -49,12 +50,14 @@ devns_subnet() {
 }
 
 # Returns 0 if the given workspace ID should use a namespace, 1 otherwise.
-# Controlled by DEVNS_WORKSPACES: "all" or comma-separated workspace IDs.
 devns_ws_enabled() {
     local ws_id="$1"
     [ "$ws_id" -gt 0 ] 2>/dev/null || return 1
-    [ "$DEVNS_WORKSPACES" = "all" ] && return 0
-    echo ",$DEVNS_WORKSPACES," | grep -q ",${ws_id},"
+    [ -z "$DEVNS_EXCLUDE_GROUPS" ] && return 0
+    local group
+    group=$(devns_ns_id "$ws_id")
+    echo ",$DEVNS_EXCLUDE_GROUPS," | grep -q ",${group}," && return 1
+    return 0
 }
 
 devns_warn() { echo "hyprflow: $*" >&2; }
