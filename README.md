@@ -101,6 +101,8 @@ Then run the interactive installer:
 hyprflow-install
 ```
 
+Hyprflow uses user-level Hyprland config and does not modify Omarchy default files.
+
 This walks you through enabling each feature:
 
 | Feature             | Description                                     |
@@ -109,7 +111,7 @@ This walks you through enabling each feature:
 | Browser sandboxing  | Per-group browser profiles via firejail         |
 | Docker runtime      | OCI runtime wrapper for container isolation     |
 | Ghostty override    | Disables single-instance mode                   |
-| Workspace groups    | Keybinds for group-based navigation             |
+| Workspace groups    | Keybinds for group-based navigation and vertical group-switch animations |
 | Group overlay       | Visual workspace group preview (Omarchy)        |
 | Notifications       | Workspace-numbered notification proxy (Omarchy) |
 | Waybar              | Persistent workspace indicators (Omarchy)       |

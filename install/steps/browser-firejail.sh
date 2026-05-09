@@ -63,6 +63,7 @@ step_browser_firejail() {
     selected_browsers=$(gum choose --no-limit \
         --header "Detected browsers (deselect to skip):" \
         --selected "$preselected" \
+        "${GUM_MULTISELECT_STYLE[@]}" \
         "${detected_labels[@]}") || return 0
 
     if [[ -z "$selected_browsers" ]]; then

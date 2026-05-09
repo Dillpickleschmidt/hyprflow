@@ -53,8 +53,10 @@ if m_has_feature "namespace_isolation"; then
     fi
 
     # Unwrap terminal
-    if [[ -n "$bindings_file" ]] && grep -q 'hypr-devns-exec' "$bindings_file" 2>/dev/null; then
-        sed -i 's/hypr-devns-exec //g' "$bindings_file"
+    terminal_bindings_file=$(m_get '.paths.terminal_bindings_file')
+    [[ -z "$terminal_bindings_file" ]] && terminal_bindings_file="$bindings_file"
+    if [[ -n "$terminal_bindings_file" ]] && grep -q 'hypr-devns-exec' "$terminal_bindings_file" 2>/dev/null; then
+        sed -i 's/hypr-devns-exec //g' "$terminal_bindings_file"
         success "Bindings: unwrapped hypr-devns-exec"
     fi
 
@@ -103,7 +105,6 @@ if m_has_feature "docker"; then
         success "Docker: restored from backup"
     elif [[ -f "$DEVNS_DOCKER_DAEMON_JSON" ]] && grep -q 'hypr-devns-runc' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null; then
         # Remove only hyprflow-specific keys, keep everything else
-        local cleaned
         cleaned=$(jq 'del(.["default-runtime"], .runtimes.devns) | if .runtimes == {} then del(.runtimes) else . end' "$DEVNS_DOCKER_DAEMON_JSON" 2>/dev/null)
         if [[ -n "$cleaned" ]] && [[ "$cleaned" != "{}" ]]; then
             echo "$cleaned" | sudo tee "$DEVNS_DOCKER_DAEMON_JSON" > /dev/null
@@ -163,6 +164,14 @@ if m_has_feature "keybinds"; then
         sed -i '/^# BEGIN hyprflow keybinds$/,/^# END hyprflow keybinds$/d' "$bindings_file"
         success "Keybindings: removed workspace group bindings"
     fi
+fi
+
+# ─── Remove Hyprflow source lines ────────────────────────────
+
+hyprland_conf="${DEVNS_HYPRLAND_CONF:-$HOME/.config/hypr/hyprland.conf}"
+if [[ -f "$hyprland_conf" ]]; then
+    sed -i '/^[[:space:]]*source[[:space:]]*=.*hyprflow-\(autostart\|bindings\|animations\)\.conf[[:space:]]*$/d' "$hyprland_conf"
+    success "Hyprland: removed Hyprflow source lines"
 fi
 
 # ─── Delete created files ────────────────────────────────────

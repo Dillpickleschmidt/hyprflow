@@ -11,11 +11,44 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
+resolve_omarchy_browser() {
+    local default_browser browser_exec
+    default_browser=$(xdg-settings get default-web-browser)
+    browser_exec=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/$default_browser 2>/dev/null | head -1)
+    [ -n "$browser_exec" ] && printf '%s\n' "$browser_exec"
+}
+
+browser_private_flag() {
+    local browser_exec="$1"
+    if "$browser_exec" --help 2>&1 | grep -q MOZ_LOG; then
+        echo "--private-window"
+    elif [[ $browser_exec =~ edge ]]; then
+        echo "--inprivate"
+    else
+        echo "--incognito"
+    fi
+}
+
 # Browsers are launched via firejail with isolated profiles.
 # The browser command may be wrapped (e.g. "uwsm-app -- helium-browser"),
 # so find the browser arg and pass it (plus any trailing args) to the launcher.
 _args=("$@")
 for _i in "${!_args[@]}"; do
+    # Omarchy resolves the user's default browser at runtime. Resolve it here too
+    # so browser keybinds get per-group profiles instead of reusing one global
+    # Chromium/Firefox process.
+    if [ "${_args[$_i]}" = "omarchy-launch-browser" ]; then
+        browser_exec=$(resolve_omarchy_browser)
+        if [ -n "$browser_exec" ]; then
+            private_flag=$(browser_private_flag "$browser_exec")
+            _browser_args=("${_args[@]:$((_i + 1))}")
+            for _j in "${!_browser_args[@]}"; do
+                [ "${_browser_args[$_j]}" = "--private" ] && _browser_args[$_j]="$private_flag"
+            done
+            exec hypr-devns-browser "$browser_exec" "${_browser_args[@]}"
+        fi
+    fi
+
     for _browser in $DEVNS_BROWSERS; do
         [ "$_browser" = "${_args[$_i]}" ] && exec hypr-devns-browser "${_args[@]:$_i}"
     done

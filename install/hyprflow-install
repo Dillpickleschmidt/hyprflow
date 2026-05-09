@@ -50,15 +50,13 @@ prompt_core_features() {
     options+=("Keybinds for workspace groups")
     preselected+=("Keybinds for workspace groups")
 
-    options+=("Workspace animations")
-    # NOT pre-selected
-
     local csv
     csv=$(IFS=,; echo "${preselected[*]}")
 
     CORE_FEATURES=$(gum choose --no-limit \
         --header "Select features to install:" \
         --selected "$csv" \
+        "${GUM_MULTISELECT_STYLE[@]}" \
         "${options[@]}") || abort
 }
 
@@ -71,12 +69,18 @@ prompt_ns_addons() {
     NS_FEATURES=$(gum choose --no-limit \
         --header "Namespace isolation add-ons:" \
         --selected "Browser sandboxing,Ghostty terminal support,Docker daemon support" \
+        "${GUM_MULTISELECT_STYLE[@]}" \
         "Browser sandboxing" \
         "Ghostty terminal support" \
         "Docker daemon support") || abort
 }
 
 # ─── Execution ───────────────────────────────────────────────
+
+GUM_MULTISELECT_STYLE=(
+    --selected.background="${GUM_CHOOSE_ITEM_BACKGROUND:-}"
+    --selected.foreground="${GUM_FILTER_INDICATOR_FOREGROUND:-${GUM_CONFIRM_PROMPT_FOREGROUND:-212}}"
+)
 
 FAILED_STEPS=()
 
@@ -101,7 +105,9 @@ run_selected_steps() {
     run_step "$CORE_FEATURES" "Group preview widget"             step_group_overlay
     run_step "$CORE_FEATURES" "Workspace numbered notifications" step_notifications
     run_step "$CORE_FEATURES" "Keybinds for workspace groups"    step_keybinds
-    run_step "$CORE_FEATURES" "Workspace animations"             step_animations
+    if has_feature "$CORE_FEATURES" "Keybinds for workspace groups"; then
+        step_animations || FAILED_STEPS+=("Workspace group animations")
+    fi
 }
 
 show_summary() {

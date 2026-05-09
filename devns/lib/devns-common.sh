@@ -8,7 +8,6 @@
 DEVNS_DNS="${DEVNS_DNS:-9.9.9.9 1.1.1.1}"
 DEVNS_WAN_IFACE="${DEVNS_WAN_IFACE:-}"
 DEVNS_EXCLUDE_GROUPS="${DEVNS_EXCLUDE_GROUPS:-}"
-[ -n "${DEVNS_WORKSPACES+x}" ] && devns_warn "DEVNS_WORKSPACES is deprecated — use DEVNS_EXCLUDE_GROUPS instead"
 GROUP_OVERLAY="${GROUP_OVERLAY:-true}"
 DEVNS_BROWSERS="${DEVNS_BROWSERS:-}"
 DEVNS_SLOTS_PER_GROUP="${DEVNS_SLOTS_PER_GROUP:-5}"
@@ -73,11 +72,14 @@ devns_get_wan_iface() {
 # Path constants shared between setup and disable
 DEVNS_AUTOSTART="$HOME/.config/hypr/autostart.conf"
 DEVNS_BINDINGS="$HOME/.config/hypr/bindings.conf"
-DEVNS_ELEPHANT="$HOME/.config/elephant/desktopapplications.toml"
+DEVNS_ELEPHANT="$HOME/.config/elephant/elephant.toml"
 DEVNS_GHOSTTY_SYSTEM="/usr/share/applications/com.mitchellh.ghostty.desktop"
 DEVNS_GHOSTTY_USER="$HOME/.local/share/applications/com.mitchellh.ghostty.desktop"
 DEVNS_DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
 
-# Hyprland-mode paths (vanilla Hyprland without Omarchy)
+# Hyprflow-owned Hyprland snippets. These are sourced from the user's
+# hyprland.conf and avoid modifying Omarchy default config files.
 DEVNS_HF_AUTOSTART="$HOME/.config/hypr/hyprflow-autostart.conf"
 DEVNS_HF_BINDINGS="$HOME/.config/hypr/hyprflow-bindings.conf"
+DEVNS_HF_ANIMATIONS="$HOME/.config/hypr/hyprflow-animations.conf"
+DEVNS_HYPRLAND_CONF="$HOME/.config/hypr/hyprland.conf"

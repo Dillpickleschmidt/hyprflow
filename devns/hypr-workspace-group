@@ -7,6 +7,26 @@
 
 STATE="${DEVNS_STATE_DIR}/active-group"
 
+: "${DEVNS_GROUP_ANIMATION:=true}"
+: "${DEVNS_GROUP_ANIMATION_SPEC:=workspaces, 1, 2, easeOutQuint, slidevert}"
+: "${DEVNS_DEFAULT_WORKSPACE_ANIMATION_SPEC:=workspaces, 0, 0, ease}"
+: "${DEVNS_GROUP_ANIMATION_RESET_DELAY:=0.35}"
+
+with_group_animation() {
+    if [ "$DEVNS_GROUP_ANIMATION" = "true" ]; then
+        hyprctl keyword animation "$DEVNS_GROUP_ANIMATION_SPEC" >/dev/null 2>&1 || true
+    fi
+
+    "$@"
+
+    if [ "$DEVNS_GROUP_ANIMATION" = "true" ]; then
+        (
+            sleep "$DEVNS_GROUP_ANIMATION_RESET_DELAY"
+            hyprctl keyword animation "$DEVNS_DEFAULT_WORKSPACE_ANIMATION_SPEC" >/dev/null 2>&1 || true
+        ) >/dev/null 2>&1 &
+    fi
+}
+
 get_group() {
     cat "$STATE" 2>/dev/null || echo 1
 }
@@ -113,10 +133,14 @@ case "$1" in
         update_waybar
         ;;
     switch)
-        save_slot "$(get_group)" "$(get_slot)"
-        echo "$2" > "$STATE"
-        update_waybar
-        hyprctl dispatch workspace "$(devns_group_to_ws "$2" "$(restore_slot "$2")")"
+        switch_group() {
+            local target_group="$1"
+            save_slot "$(get_group)" "$(get_slot)"
+            echo "$target_group" > "$STATE"
+            update_waybar
+            hyprctl dispatch workspace "$(devns_group_to_ws "$target_group" "$(restore_slot "$target_group")")"
+        }
+        with_group_animation switch_group "$2"
         ;;
     ws)
         hyprctl dispatch workspace "$(devns_group_to_ws "$(get_group)" "$2")"
@@ -128,24 +152,34 @@ case "$1" in
         hyprctl dispatch movetoworkspacesilent "$(devns_group_to_ws "$(get_group)" "$2")"
         ;;
     movetogroup)
-        slot=$(get_slot)
-        hyprctl dispatch movetoworkspace "$(devns_group_to_ws "$2" "$slot")"
+        move_to_group() {
+            local target_group="$1" slot
+            slot=$(get_slot)
+            hyprctl dispatch movetoworkspace "$(devns_group_to_ws "$target_group" "$slot")"
+        }
+        with_group_animation move_to_group "$2"
         ;;
     next)
-        group=$(get_group)
-        save_slot "$group" "$(get_slot)"
-        new_group=$(( group + 1 ))
-        echo "$new_group" > "$STATE"
-        update_waybar
-        hyprctl dispatch workspace "$(devns_group_to_ws "$new_group" "$(restore_slot "$new_group")")"
+        next_group() {
+            group=$(get_group)
+            save_slot "$group" "$(get_slot)"
+            new_group=$(( group + 1 ))
+            echo "$new_group" > "$STATE"
+            update_waybar
+            hyprctl dispatch workspace "$(devns_group_to_ws "$new_group" "$(restore_slot "$new_group")")"
+        }
+        with_group_animation next_group
         ;;
     prev)
-        group=$(get_group)
-        save_slot "$group" "$(get_slot)"
-        new_group=$(( group - 1 ))
-        [ "$new_group" -lt 1 ] && new_group=1
-        echo "$new_group" > "$STATE"
-        update_waybar
-        hyprctl dispatch workspace "$(devns_group_to_ws "$new_group" "$(restore_slot "$new_group")")"
+        prev_group() {
+            group=$(get_group)
+            save_slot "$group" "$(get_slot)"
+            new_group=$(( group - 1 ))
+            [ "$new_group" -lt 1 ] && new_group=1
+            echo "$new_group" > "$STATE"
+            update_waybar
+            hyprctl dispatch workspace "$(devns_group_to_ws "$new_group" "$(restore_slot "$new_group")")"
+        }
+        with_group_animation prev_group
         ;;
 esac
